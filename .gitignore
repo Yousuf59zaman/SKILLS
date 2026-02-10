@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+
+# Local-only files created by some skill runners / Codex packaging
+planner.skill
+
+# Legacy local clone (not part of the repo; keep it out of git status)
+.github/Yousuf59zaman-SKILLS/
+

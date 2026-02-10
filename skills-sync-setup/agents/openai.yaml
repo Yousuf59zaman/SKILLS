@@ -1,0 +1,4 @@
+interface:
+  display_name: "Skills Sync Setup"
+  short_description: "Install and sync Codex/Claude/Gemini skills"
+  default_prompt: "Set up the Windows skills sync system (git hooks + startup + sync script) for Codex, Claude, and Gemini AntiGravity."
