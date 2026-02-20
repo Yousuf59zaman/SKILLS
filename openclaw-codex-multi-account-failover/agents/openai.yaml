@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenClaw Codex Multi-Account Failover"
+  short_description: "Manage multiple OpenAI Codex OAuth accounts with ordered failover"
+  default_prompt: "Use $openclaw-codex-multi-account-failover to add/maintain OpenAI Codex OAuth accounts, preserve existing profiles, set failover order, and verify chat profile overrides."
