@@ -650,9 +650,13 @@ function main() {
     console.log(`Replaced outdated: ${applied.replacedOutdated}`);
     if (applied.backupRoot) console.log(`Backup root: ${applied.backupRoot}`);
     if (opts.pushGithub) {
-      if (githubSync.failed) console.log(`GitHub sync failed: ${githubSync.error}`);
-      else if (githubSync.pushed) console.log(`GitHub pushed: ${githubSync.repo} @ ${githubSync.commit}`);
-      else if (githubSync.enabled) console.log(`GitHub sync: ${githubSync.message}`);
+      if (githubSync.failed) {
+        console.log(`GitHub sync failed: ${githubSync.error}`);
+      } else if (githubSync.enabled) {
+        if (githubSync.pushed) console.log(`GitHub pushed: ${githubSync.repo} @ ${githubSync.commit}`);
+        else console.log(`GitHub sync: ${githubSync.message}`);
+        console.log(`GitHub merge: remote->local ${githubSync.mergedFromGithubToLocal || 0}, local->remote ${githubSync.mergedFromLocalToGithub || 0}`);
+      }
     }
   } else {
     console.log(`Would copy missing: ${operations.filter(o => o.action === 'would-copy-missing').length}`);
