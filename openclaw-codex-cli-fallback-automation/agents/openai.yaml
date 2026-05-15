@@ -1,4 +1,0 @@
-interface:
-  display_name: "OpenClaw Codex CLI Fallback Automation"
-  short_description: "Run browser-failure fallback with Codex CLI safely"
-  default_prompt: "Use $openclaw-codex-cli-fallback-automation to detect browser control-service failures, execute Codex CLI fallback safely, and verify successful channel delivery from logs."
