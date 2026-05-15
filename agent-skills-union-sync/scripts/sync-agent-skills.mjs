@@ -257,6 +257,35 @@ function git(worktree, args) {
   return run('git', ['-C', worktree, ...args]);
 }
 
+function discoverGithubSkills(worktree, opts) {
+  const inv = discoverSkills(worktree, { ...opts, includeDot: false });
+  for (const skill of inv.skills) {
+    try {
+      const seconds = git(worktree, ['log', '-1', '--format=%ct', '--', skill.relativePath]).stdout.trim();
+      const gitMtimeMs = Number(seconds) * 1000;
+      if (Number.isFinite(gitMtimeMs) && gitMtimeMs > 0) {
+        skill.latestMtimeMs = gitMtimeMs;
+        skill.latestMtime = new Date(gitMtimeMs).toISOString();
+        skill.mtimeSource = 'git-log';
+      }
+    } catch {
+      skill.mtimeSource = 'filesystem';
+    }
+  }
+  return inv;
+}
+
+function buildCanonicalMap(inv) {
+  const grouped = new Map();
+  for (const skill of inv.skills) {
+    if (!grouped.has(skill.id)) grouped.set(skill.id, []);
+    grouped.get(skill.id).push(skill);
+  }
+  const map = new Map();
+  for (const [id, entries] of grouped.entries()) map.set(id, pickCanonical(entries));
+  return map;
+}
+
 function syncGithubFromSource(opts) {
   const sourceRoot = opts.roots[opts.githubSource];
   if (!sourceRoot) throw new Error(`Unknown --github-source root: ${opts.githubSource}`);
@@ -281,28 +310,110 @@ function syncGithubFromSource(opts) {
   if (beforeStatus.trim()) {
     throw new Error(`GitHub worktree has pre-existing uncommitted changes; refusing to mix changes. Path: ${worktree}`);
   }
+
+  // Pull first. Keep this fast-forward only so the script never creates messy Git conflict files.
   git(worktree, ['pull', '--ff-only']);
 
-  const inv = discoverSkills(sourceRoot, { ...opts, includeDot: false });
-  const grouped = new Map();
-  for (const skill of inv.skills) {
-    if (!grouped.has(skill.id)) grouped.set(skill.id, []);
-    grouped.get(skill.id).push(skill);
-  }
-  const skills = [...grouped.values()].map(pickCanonical).sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+  // Treat GitHub as another skill root after pull. If the same skill differs, the newest
+  // version wins. GitHub skill mtimes use last commit time, not checkout mtime, so a fresh
+  // clone/pull does not accidentally make stale remote files look newest.
+  const localRoots = Object.entries(opts.roots).map(([name, root]) => ({ name, root, kind: 'local' }));
+  const allRoots = [...localRoots, { name: 'github', root: worktree, kind: 'github' }];
+  const inventories = Object.fromEntries(allRoots.map(r => [
+    r.name,
+    r.kind === 'github' ? discoverGithubSkills(r.root, opts) : discoverSkills(r.root, opts)
+  ]));
+  const maps = Object.fromEntries(allRoots.map(r => [r.name, buildCanonicalMap(inventories[r.name])]));
+  const allIds = new Set();
+  for (const map of Object.values(maps)) for (const id of map.keys()) allIds.add(id);
 
-  let copiedSkills = 0;
-  for (const skill of skills) {
-    const dest = path.join(worktree, skill.relativePath);
-    if (fs.existsSync(dest)) fs.rmSync(dest, { recursive: true, force: true });
-    ensureDir(path.dirname(dest));
-    copyDirSafe(skill.path, dest);
-    copiedSkills++;
+  const planned = [];
+  const blocked = [];
+  const changedSkillIds = new Set();
+  let copiedMissing = 0;
+  let replacedOutdated = 0;
+  let githubUpdated = 0;
+  let localUpdated = 0;
+  let backupRoot = null;
+
+  const ensureBackupRoot = () => {
+    if (!backupRoot) backupRoot = makeBackupRoot();
+    return backupRoot;
+  };
+
+  for (const id of [...allIds].sort()) {
+    const present = allRoots
+      .filter(r => maps[r.name].has(id))
+      .map(r => ({ root: r.name, rootPath: r.root, rootKind: r.kind, ...maps[r.name].get(id) }));
+    if (!present.length) continue;
+    const latest = pickLatest(present);
+
+    for (const target of allRoots) {
+      const existing = maps[target.name].get(id);
+      if (existing && existing.hash === latest.hash) continue;
+
+      const isMissing = !existing;
+      const dest = existing ? existing.path : path.join(target.root, latest.folderName);
+      const op = {
+        id,
+        source: latest.root,
+        sourcePath: latest.path,
+        sourceLatestMtime: latest.latestMtime,
+        sourceMtimeSource: latest.mtimeSource || 'filesystem',
+        target: target.name,
+        targetKind: target.kind,
+        destPath: dest,
+        reason: isMissing ? 'missing-skill' : 'content-diff-latest-wins',
+      };
+
+      if (!fs.existsSync(target.root)) {
+        if (opts.createMissingRoots) ensureDir(target.root);
+        else {
+          op.action = 'blocked-missing-root';
+          op.reason = 'Target root does not exist.';
+          blocked.push(op);
+          planned.push(op);
+          continue;
+        }
+      }
+      if (isMissing && fs.existsSync(dest)) {
+        op.action = 'blocked-existing-path';
+        op.reason = 'Destination exists but is not detected as this skill; refusing to overwrite.';
+        blocked.push(op);
+        planned.push(op);
+        continue;
+      }
+
+      try {
+        if (!isMissing) {
+          op.backupPath = backupDir(dest, ensureBackupRoot(), `github-merge-${target.name}-${id}`);
+          fs.rmSync(dest, { recursive: true, force: true });
+        }
+        ensureDir(path.dirname(dest));
+        const counts = copyDirSafe(latest.path, dest);
+        op.action = isMissing ? 'copied-missing' : 'replaced-outdated';
+        op.files = counts.files;
+        op.dirs = counts.dirs;
+        op.skippedSymlinks = counts.skippedSymlinks;
+        if (isMissing) copiedMissing++; else replacedOutdated++;
+        if (target.kind === 'github') githubUpdated++; else localUpdated++;
+        changedSkillIds.add(id);
+      } catch (e) {
+        op.action = 'failed';
+        op.error = e.message;
+        blocked.push(op);
+      }
+      planned.push(op);
+    }
+  }
+
+  if (blocked.length) {
+    throw new Error(`GitHub merge blocked/failed for ${blocked.length} operation(s): ${blocked.slice(0, 3).map(b => `${b.id} ${b.source}->${b.target}: ${b.reason || b.error}`).join('; ')}`);
   }
 
   git(worktree, ['add', '-A']);
-  const postCopyStatus = git(worktree, ['status', '--porcelain']).stdout;
-  if (!postCopyStatus.trim()) {
+  const postMergeStatus = git(worktree, ['status', '--porcelain']).stdout;
+  if (!postMergeStatus.trim()) {
     return {
       enabled: true,
       repo: opts.githubRepo,
@@ -310,17 +421,31 @@ function syncGithubFromSource(opts) {
       sourceRoot,
       cloned,
       remote,
-      copiedSkills,
+      copiedSkills: maps.github.size,
       changed: false,
       committed: false,
       pushed: false,
-      message: 'GitHub repo already matched source skills; nothing to commit.',
+      mergedFromGithubToLocal: localUpdated,
+      mergedFromLocalToGithub: githubUpdated,
+      copiedMissing,
+      replacedOutdated,
+      changedSkillIds: [...changedSkillIds].sort(),
+      backupRoot,
+      message: 'GitHub repo and local roots already matched after pull/merge; nothing to commit.',
     };
   }
 
   const msg = `Sync agent skills union ${new Date().toISOString().slice(0, 10)}`;
   git(worktree, ['commit', '-m', msg]);
-  git(worktree, ['push']);
+
+  try {
+    git(worktree, ['push']);
+  } catch (pushError) {
+    // A remote race can happen if another machine pushed after our pull. Keep the worktree safe
+    // and ask for another run rather than force-pushing or creating conflict markers.
+    throw new Error(`GitHub push failed after local merge; rerun the skill so it can pull the new remote first. ${pushError.message}`);
+  }
+
   const sha = git(worktree, ['rev-parse', '--short', 'HEAD']).stdout;
   const finalStatus = git(worktree, ['status', '--porcelain']).stdout;
   return {
@@ -330,12 +455,18 @@ function syncGithubFromSource(opts) {
     sourceRoot,
     cloned,
     remote,
-    copiedSkills,
+    copiedSkills: buildCanonicalMap(discoverGithubSkills(worktree, opts)).size,
     changed: true,
     committed: true,
     pushed: true,
     commit: sha,
     clean: !finalStatus.trim(),
+    mergedFromGithubToLocal: localUpdated,
+    mergedFromLocalToGithub: githubUpdated,
+    copiedMissing,
+    replacedOutdated,
+    changedSkillIds: [...changedSkillIds].sort(),
+    backupRoot,
   };
 }
 

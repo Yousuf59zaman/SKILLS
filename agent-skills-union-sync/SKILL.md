@@ -20,6 +20,7 @@ Use the bundled script to make Codex, Claude, and Antigravity share the same uni
 - Copies missing skill folders on `--apply`.
 - Replaces outdated differing skill folders on `--apply`, after backing them up.
 - Can publish the final unified set to GitHub with `--push-github`, using Codex as the default source because all three roots should match after sync.
+- Before pushing, pulls GitHub first and treats the pulled repo as a fourth sync source; if GitHub has a newer/different copy of a same-name skill, the GitHub version is merged back into local Codex/Claude/Antigravity before the final push.
 - Never overwrites an unrelated existing destination folder.
 - Ignores dot/system/vendor folders by default, including `.system`, `.github`, `.tmp`, `tmp`, `node_modules`, `vendor_imports`, and backups.
 
@@ -65,7 +66,7 @@ Default GitHub publish settings:
 - Local worktree: `%USERPROFILE%\.codex\skills\.github\Yousuf59zaman-SKILLS`
 - Publish source after local sync: Codex root (`%USERPROFILE%\.codex\skills`)
 
-The script pulls the repo, copies discovered non-dot skill folders from the source root into the repo, commits only if there are changes, and pushes. It refuses to continue if the GitHub worktree already has uncommitted changes before the sync.
+The script pulls the repo first, then treats GitHub as another skill root alongside Codex, Claude, and Antigravity. If the same skill exists locally and in GitHub but content differs, the newest version wins; for GitHub skills, “newest” is based on the latest Git commit timestamp for that skill folder, not checkout file time. Any newer GitHub skill content is copied back into the local roots before the final commit/push. It refuses to continue if the GitHub worktree already has uncommitted changes before the sync, and it does not force-push.
 
 Override if needed:
 
@@ -95,4 +96,5 @@ node skills/agent-skills-union-sync/scripts/sync-agent-skills.mjs --root pi="D:\
 - Do not use `--no-content-sync` unless Yousuf explicitly wants old behavior that only fills missing skills.
 - Use `--push-github` only when Yousuf requested GitHub publication/push.
 - If the script reports `blocked-existing-path`, inspect manually instead of overwriting.
-- Report concise counts: each root count, identical common count, differing common count, union count, unique-by-root counts, copied count, replaced count, backup root, GitHub commit/push status, blocked count.
+- If GitHub push is rejected because another machine pushed after the pull, rerun the skill; do not force-push.
+- Report concise counts: each root count, identical common count, differing common count, union count, unique-by-root counts, copied count, replaced count, backup root, GitHub merge/pull direction counts, GitHub commit/push status, blocked count.
