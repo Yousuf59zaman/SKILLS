@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenClaw Browser Blocker Recovery"
+  short_description: "Repair OpenClaw browser and gateway lock failures"
+  default_prompt: "Use $openclaw-browser-blocker-recovery to diagnose and repair OpenClaw browser-control-service failures, stale browser refs, and EPERM rename crashes in ~/.openclaw/devices on Windows."

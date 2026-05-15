@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenClaw Update + Sync"
+  short_description: "Update OpenClaw and force gateway runtime sync"
+  default_prompt: "Update OpenClaw to the latest version, restart gateway cleanly, clear stale listener processes, and verify the live gateway version."

@@ -1,4 +1,4 @@
-# OpenClaw Codex Multi-Account Troubleshooting
+﻿# OpenClaw Codex Multi-Account Troubleshooting
 
 ## 1) `/models` shows one `openai-codex` button only
 
@@ -11,7 +11,7 @@ Use profile selection with:
 /model openai-codex/gpt-5.2-codex@openai-codex:mailA
 ```
 
-## 2) `openclaw models auth login --provider openai-codex` fails with "Unknown provider"
+## 2) `openclaw models auth login --provider openai-codex` fails with provider errors
 
 Some builds only expose plugin auth providers for that command.
 Use onboarding OAuth instead:
@@ -20,7 +20,39 @@ Use onboarding OAuth instead:
 openclaw onboard --flow quickstart --auth-choice openai-codex --accept-risk --skip-channels --skip-skills --skip-ui --skip-daemon --skip-health
 ```
 
-## 3) Rate limit on primary account but no fallback happened
+## 3) OAuth onboarding says `OAuth requires interactive mode`
+
+Use a normal interactive PowerShell window (TTY required).
+
+## 4) Promotion fails with `Source profile not found: openai-codex:default`
+
+The login step did not complete or did not authenticate `openai-codex`.
+Repeat onboarding, complete browser auth, then rerun:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\promote-default-to-target.ps1 -TargetProfileId openai-codex:mailB
+```
+
+Preferred fix (avoids split-flow race):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\login-once-and-place-target.ps1 -TargetProfileId openai-codex:mailB
+```
+
+## 5) I had to sign in twice before placement worked
+
+Use the one-shot helper instead of manual login + promote steps:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\login-once-and-place-target.ps1 -TargetProfileId openai-codex:mailD
+```
+
+Reason: this helper handles both outcomes after OAuth:
+
+- normal case: `openai-codex:default` exists and is promoted
+- fallback case: `default` missing, but a provider profile delta is detected and placed safely
+
+## 6) Rate limit on primary account but no fallback happened
 
 Check:
 
@@ -29,10 +61,10 @@ openclaw models auth order get --provider openai-codex --json
 openclaw models status --json
 ```
 
-Fix:
+Fix with alphabetical + locked-tail order:
 
 ```powershell
-openclaw models auth order set --provider openai-codex openai-codex:mailA openai-codex:mailB
+powershell -ExecutionPolicy Bypass -File scripts\set-codex-order-alpha-with-usuf-tail.ps1
 ```
 
 Then reset session:
@@ -42,7 +74,7 @@ Then reset session:
 /model openai-codex/gpt-5.2-codex
 ```
 
-## 4) Manual pinning sticks to one account
+## 7) Manual pinning sticks to one account
 
 If you used:
 
@@ -59,7 +91,15 @@ Return to auto mode:
 /model openai-codex/gpt-5.2-codex
 ```
 
-## 5) Hooks were enabled accidentally during onboarding
+## 8) `mail-usuf` moved from the last position
+
+Rebuild order:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\set-codex-order-alpha-with-usuf-tail.ps1
+```
+
+## 9) Hooks were enabled accidentally during onboarding
 
 Disable:
 
@@ -69,7 +109,7 @@ openclaw hooks disable bootstrap-extra-files
 openclaw hooks disable command-logger
 ```
 
-## 6) Sensitive token exposure in logs/screenshots
+## 10) Sensitive token exposure in logs/screenshots
 
 Rotate gateway token:
 
