@@ -1,4 +1,0 @@
-interface:
-  display_name: "OpenClaw Codex CLI Routing + Fallback"
-  short_description: "Enforce codex-cli default with cron codex-api exceptions"
-  default_prompt: "Use $openclaw-codex-cli-default-routing-and-fallback to enforce codex-cli default routing across channels, pin cron jobs to codex-api, keep codex-cli as failure-only cron fallback, execute safe codex resume, and verify delivery from logs."
