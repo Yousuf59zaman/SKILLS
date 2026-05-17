@@ -1,0 +1,141 @@
+---
+name: orangebd-workflow
+description: Apply OrangeBD project workflow rules to coding, frontend UI, shared reusable field/icon components, utils extraction, Laravel/Vue/Nuxt/API integration, documentation, topic-wise complex-part explanations, review, and testing tasks. Use when working on OrangeBD projects or when the user asks to follow OrangeBD, boss, office, Figma, design, shared fields, reusable components, icons, duplicate functions, utils, hydration, pagination, complex part explanation, or project delivery rules.
+---
+
+# OrangeBD Workflow
+
+Use this skill for OrangeBD project tasks. Apply only the rules that fit the current project, stack, and task; not every rule applies to every task. In the final response, include a short "OrangeBD rules followed" note listing the relevant rules applied and any important rules that did not apply.
+
+## Skill file guardrail
+
+- Do not modify this skill file or any other local skill file during normal project work unless the user explicitly asks to update, add to, or edit the skill.
+
+## Baseline workflow
+
+1. Before starting a new task, review the overall project pattern, not only one target file: stack, routes, controllers, layouts, pages, components, data flow, scripts, naming conventions, API patterns, auth flow, and dirty git status.
+2. Prefer the existing project structure, coding style, folder structure, component pattern, route/controller pattern, API pattern, and naming style over introducing a new architecture.
+3. Keep the change as small as the task allows. Avoid unrelated refactors, over-engineering, metadata churn, and broad rewrites.
+4. Understand the requirement clearly, implement clean maintainable code, consider edge cases, remove unused code introduced by the change, and make sure existing features do not break.
+5. Keep design/UI implementation self-contained until API integration or shared reuse explicitly requires extraction.
+6. When API/backend data is involved, inspect existing response shape, pagination shape, loading/error/empty states, auth/role journey, and service/hook/composable pattern before wiring frontend code.
+   - Only integrate an API when matching UI already exists, unless the user explicitly asks to create new UI.
+   - If an API response only partially matches the UI, explain the mismatch before coding.
+   - If API returns `200` but data is semantically suspicious, such as repeated `Unknown`, all-zero rows, missing IDs, or missing pagination meta, report the exact response problem before changing frontend mapping.
+   - If an API returns a backend stack trace or SQL/server error, do not patch the frontend around it; report the exact backend issue and integrate only after a valid response is available.
+7. Verify with the narrowest useful tests/build/browser checks, then do a quick developer review and QA review before final delivery.
+8. Report what changed, what was verified, and which OrangeBD rules were followed.
+
+## JavaScript and TypeScript
+
+- Use ES6+ style where suitable.
+- Prefer arrow functions for local callbacks and component helpers.
+- Use `const` and `let`; do not use `var`.
+- Prefer modern syntax where readable: destructuring, template literals, spread/rest, optional chaining, nullish coalescing, and modern array/object methods.
+- Convert TypeScript modules to CommonJS only when the runtime or project requirement needs it.
+
+## Naming conventions
+
+- Follow the project's existing naming convention exactly where practical: `camelCase`, `PascalCase`, `kebab-case`, route names, controller names, folder names, and component names.
+- In monolith apps where backend and frontend live together, keep naming consistent across routes, controllers, pages, components, services/hooks/utils, API names, and folders.
+- Do not create different names for the same feature across backend/frontend unless the existing project already does so.
+- Example pattern: backend route `claimants`, controller `ClaimantController`, frontend page `ClaimantsPage`, components such as `ClaimantList` or `ClaimantDetails`.
+
+## Self-contained UI implementation
+
+- For Figma or normal design tasks, keep initial design implementation self-contained inside the related page/component until real API integration requires extraction.
+- Keep feature-specific constants, enums, static JSON-like objects, and static arrays in the same file or near the related feature/component/page.
+- If backend API or database persistence is not ready, keep mock/static demo data in the Vue page/component or a nearby frontend data file. Do not put mock datasets inside Laravel/backend controllers unless the user explicitly asks for a backend API prototype.
+- Allow small inner components inside a page/component when it keeps the feature understandable.
+- When the user explicitly asks for fields or controls to be reusable across the project, put those reusable field components in the project's shared/common components folder, such as `components/shared`, `shared`, or the existing equivalent. This applies to inputs, selects, date pickers, filters, dropdowns, textareas, checkboxes, radios, and similar form controls.
+- Keep shared field components generic and project-wide: expose labels, model value, options, disabled/error/loading states, placeholders, icons, and visual variants through props while preserving the existing design system. Do not hardcode one feature's data or labels inside a shared field.
+- When creating or updating reusable icon components, expose `width` and `height` props in addition to any `size` prop, with sensible fallback behavior so icons can be sized uniformly or non-uniformly across modules.
+- Keep one-off feature-specific fields local unless the user requests project-wide reuse or the same field pattern is already reused in multiple places.
+- After dynamic/API integration grows, refactor shared behavior into existing services, hooks/composables, utils, or constants folders.
+
+## Formatting
+
+- Preserve the repository formatter and style config.
+- Use 4-space tab/indent size when the project or editor formatting does not specify otherwise.
+- After formatting, review the diff and make sure unrelated code did not change unnecessarily.
+
+## Design implementation
+
+- Convert fixed pixel values to Tailwind utilities or rem-based sizing where practical.
+- Inspect Figma carefully for spacing, typography, color, states, and responsive behavior when design fidelity matters.
+- Prefer Figma Dev Mode, Figma MCP, or copied layer CSS when available.
+- Follow the existing project design system, spacing, typography, color, and component patterns first.
+- Cover responsive behavior across `xs`, `sm`, `md`, `lg`, and `xl` where the screen supports those breakpoints.
+- For browser verification, check at least two meaningful viewport widths for frontend layout changes.
+- Use best-practice responsive layout: avoid incoherent overlap, prevent document-level horizontal overflow, keep text inside containers, and keep controls usable on mobile/tablet/desktop.
+- When implementing or updating graph/chart UI, make charts fully interactive by default: use the project's chart library or shared chart wrapper, include hover tooltips, clickable legends or filters where relevant, hover/focus emphasis, responsive autoresize behavior, and browser verification of interaction. Avoid static SVG/CSS/bitmap charts unless the user explicitly asks for a static visual.
+- Use custom text styling where the design requires it.
+- If production CSS drops Tailwind styles, especially in rich/content `p` tags, use scoped stronger selectors or `!important` only when needed and localized.
+
+## Dashboard and report refactor guardrails
+
+- Design Preservation Rule: When refactoring UI components for data/API readiness, preserve existing templates, layout classes, chart options, spacing, and visual behavior unless the user explicitly asks for redesign. Move data/source logic first; do not replace custom-designed panels with generic renderers if the design is panel-specific.
+- Panel-Specific Data Migration Rule: For complex dashboard/report panels, keep panel-specific components and migrate only business/static data into a nearby data source. Components may keep presentation-only logic such as ECharts config, color maps, filters, legends, table layout, and derived metric cards.
+- Generic Renderer Caution Rule: Do not introduce a generic renderer for custom report panels when each panel has distinct Figma/design behavior. Use shared primitives only for truly repeated UI parts; otherwise keep report panels custom.
+- Static API-Ready Data Shape Rule: If backend API is not ready, keep static data in an API-like compact data file with a stable getter/normalizer. Future API responses should replace or normalize into that shape without redesigning components.
+- Safe Cleanup Boundary Rule: Cleanup redundancy only when it cannot affect design/data behavior. Do not delete one-off wrappers/components just because they have a single usage if removing them can alter visual output. Prefer removing duplicate data/type fields first.
+- Nuxt Component Move Rule: Before reorganizing Nuxt component folders, check auto-import naming impact. If moving files into subfolders can change component names, use explicit imports or update template tags carefully, then run `nuxi prepare` and TypeScript checks.
+
+## Architecture
+
+- Use Atomic Design only when it fits the existing codebase and reduces real complexity; existing project architecture always wins.
+- Existing project architecture is first priority. Before creating new files or components, check similar features/pages/API calls/routes/controllers and reuse or mirror the existing pattern.
+- Structure pages by major sections when the section is substantial or reused. Subsections can also become components when they reduce complexity.
+- Tiny one-off elements like a single button/input do not need separate components unless the project already has reusable components for them.
+- For reusable form controls, prefer project-level shared components over feature-only shared folders when the component is intended to be used across pages/modules. Feature folders can wrap shared fields with feature-specific labels or options.
+- Before adding a new shared component/helper, scan for existing shared field, icon, table, and chart utilities; after migration, remove dead wrappers introduced or made obsolete by the change.
+- If the same pure helper/function is used in two or more places, extract it to the project's existing `utils` folder/pattern and import it from there. Keep the util generic, named clearly, and free of feature-specific hardcoded data.
+- For unfinished API-backed Inertia/workflow pages, keep Laravel controllers thin: render the page and pass only required route params or real server data. Avoid using controllers as temporary frontend data stores.
+- Before adding local formatters, status badge logic, currency helpers, or repeated display helpers, scan existing `utils` and shared workflow components. Reuse existing helpers such as shared currency formatting or status badge components when available.
+- In monolith apps, keep backend and frontend feature structure and names aligned enough that route/controller/page/component relationships are easy to follow.
+
+## Functional and technical checks
+
+- Watch for SSR/Nuxt/Vue hydration problems and use the project's established hydration-safe patterns.
+- Use skeleton loaders for async content when the task affects loading UX and the project pattern supports it.
+- Consider the user auth journey and route guards when changing pages behind login or role-based flows.
+- Optimize/refactor only within the task scope; remove unused imports, dead local state, and obsolete code touched by the task.
+- Do not create fake `store`, `update`, `destroy`, validation, or JSON response endpoints only to make a UI demo work. Add write routes/controllers only when real API/database behavior is required or explicitly requested.
+- Follow existing backend API pagination patterns. For Laravel APIs, inspect response `meta`, `links`, and collection shape before implementing frontend pagination.
+- When a table shows rows-per-page, pagination buttons, or sortable headers, verify whether they are functional or only static UI before calling the feature complete. If backend pagination is required, confirm request keys (`page`, `per_page`, `sort`, `search`) and Laravel response meta/links before implementation.
+- For production table/list features, `sort`, `search`, `filter`, `pagination`, `per_page`, and rows-per-page limits must be treated as backend API responsibilities. Frontend-only handling can be used for temporary UI/demo behavior, but it is not final for scalable data. Confirm backend request keys and response pagination metadata before marking the feature complete.
+- Handle `jwplayer` or `hlsplayer` requirements with the project's established media-player approach when those features are involved.
+- For environment variables, use server-side env access in server files such as `index.js` or `config.js`; use a separate safe browser config approach for browser entry files such as `main.js`.
+
+## Documentation and explanation tasks
+
+When the user asks for a detailed Antigravity-style explanation or asks to explain the complex parts of any topic, feature, component, flow, API, chart, UI section, bug, or code area, create an `.md` file and explain in Bangla while keeping technical terms in English. Make it very easy to understand, topic-wise, and practical enough that the user can rebuild or debug the same thing later. Cover page by page, feature by feature, file by file, phase by phase, and step by step as relevant. Include:
+
+- dashboard page, claimants page, and all relevant tabs when those are part of the task;
+- visual breakdowns that mirror the website sections;
+- the full flow for each feature;
+- all files each page depends on;
+- route/controller/page/component relationships and file dependency flow;
+- code snippets for each small part;
+- the most complex or easy-to-misunderstand parts first, with simple Bangla explanations and English technical terms;
+- data flow, state flow, event flow, API flow, rendering flow, and responsive/design flow where they apply;
+- why each important pattern exists, what can break, and common mistakes to avoid;
+- how to rebuild, extend, or debug the same feature again from scratch.
+
+## Testing and review
+
+- Use Codex-style code review for review requests: findings first, ordered by severity, with file/line references.
+- Add or run unit tests where appropriate for logic-heavy, shared, or regression-prone changes.
+- For frontend tasks, run the project build or typecheck when practical and use browser checks for visual/layout behavior. Do not use the user's Codex in-app browser unless they explicitly allow it for the task.
+- If a submit/save/release/approve/generate button is not connected to real persistence, keep the handler clearly stubbed or local-demo only, and report it as not API-integrated. Do not mark the flow as production-complete.
+- For each task, verify with a QA mindset before final delivery:
+  - requirement is completed;
+  - format changed files with the project formatter when available;
+  - existing pattern and naming convention are followed;
+  - UI is responsive where relevant;
+  - API integration, loading, error, and empty states are handled where relevant;
+  - auth/user journey is not broken;
+  - browser console has no relevant new errors when checked;
+  - unused imports/code are removed;
+  - formatting is clean;
+  - minimum-change approach was maintained.
