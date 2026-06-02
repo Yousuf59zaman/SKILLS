@@ -1,0 +1,4 @@
+interface:
+  display_name: "Prompt Book"
+  short_description: "Save reusable comparison-study prompts."
+  default_prompt: "Give me a detailed syllabus of common topics between Vue and React and the differences between Vue and React."
