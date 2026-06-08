@@ -156,6 +156,60 @@ Rules:
 - Plugin runs at app boot.
 - It should not repeatedly fetch if state is already initialized.
 - Middleware uses this state for route protection.
+- Before calling current-user APIs, check whether the matching token exists. If no token exists, set state to `null` and skip the API call.
+
+Token-gated plugin example:
+
+```ts
+export default defineNuxtPlugin(async () => {
+  const admin_user = adminUser()
+  const token = useCookie($XADM_TOKEN)
+
+  if (admin_user.value !== undefined) return
+
+  admin_user.value = token.value
+    ? await fetchAdminCurrentUser()
+    : null
+})
+```
+
+Scenario rule:
+
+```text
+admin token exists only -> call /admin/user, skip /customer/user
+citizen token exists only -> call /customer/user, skip /admin/user
+no user token -> set both states null, skip both current-user APIs
+both tokens exist -> verify both only if the project intentionally supports dual sessions; otherwise prefer the active route/role and clear stale token
+```
+
+## Login Redirect Pattern
+
+Prefer SPA navigation after login:
+
+```ts
+const response = await login(form)
+
+if (response) {
+  admin_user.value = await fetchAdminCurrentUser()
+  await router.push('/admin-panel')
+}
+```
+
+Rules:
+
+- Use `router.push()` / `navigateTo()` for normal internal redirects after login, logout, save, filter, tab, and route-query changes.
+- Before pushing to a protected page, update current user state if the target middleware depends on that state.
+- Use `window.location.href` only when a real full browser reload is required, such as leaving the app for an external payment/SSO URL, recovering from a corrupted client state, or intentionally reloading all runtime assets after a deployment-critical change.
+- Do not use `window.location.href` just to make auth state refresh. Fetch current user and push the route instead.
+
+Scenario rule:
+
+```text
+login success + internal dashboard/admin route -> fetch current user, then router.push
+logout success + internal public route -> clear state/token, then router.push or navigateTo
+payment gateway/external SSO URL -> window.location.href is acceptable
+same-app route/query change -> router.push, router.replace, or navigateTo
+```
 
 ## Middleware Pattern
 
@@ -193,6 +247,90 @@ Rules:
 - Route protection belongs in middleware.
 - Page files should not duplicate auth redirects.
 - Role-to-route normalization belongs in middleware.
+- Basic `auth-admin` only answers "logged in or not". Add page meta when a page needs role or permission access control.
+- Confirm the current-user response shape before implementing role/permission checks; normalize backend arrays/objects instead of guessing field names.
+
+Page-level permission example:
+
+```ts
+definePageMeta({
+  middleware: ['auth-admin'],
+  layout: 'admin',
+  permission: 'users.view',
+})
+```
+
+Multiple allowed roles for one page:
+
+```ts
+definePageMeta({
+  middleware: ['auth-admin'],
+  layout: 'admin',
+  roles: ['super-admin', 'user-manager'],
+})
+```
+
+Multiple permission options:
+
+```ts
+definePageMeta({
+  middleware: ['auth-admin'],
+  layout: 'admin',
+  permissionsAny: ['users.view', 'users.manage'],
+})
+```
+
+Strict multiple required permissions:
+
+```ts
+definePageMeta({
+  middleware: ['auth-admin'],
+  layout: 'admin',
+  permissionsAll: ['users.view', 'users.export'],
+})
+```
+
+Permission/role middleware pattern:
+
+```ts
+export default defineNuxtRouteMiddleware((to) => {
+  const admin_user = adminUser()
+
+  if (!admin_user.value) {
+    return navigateTo('/admin-login', { replace: true })
+  }
+
+  const userRoles = admin_user.value?.data?.roles || []
+  const userPermissions = admin_user.value?.data?.permissions || []
+
+  const roles = to.meta.roles as string[] | undefined
+  const permission = to.meta.permission as string | undefined
+  const permissionsAny = to.meta.permissionsAny as string[] | undefined
+  const permissionsAll = to.meta.permissionsAll as string[] | undefined
+
+  const hasRole = !roles?.length || roles.some((role) => userRoles.includes(role))
+  const hasPermission = !permission || userPermissions.includes(permission)
+  const hasAnyPermission = !permissionsAny?.length || permissionsAny.some((p) => userPermissions.includes(p))
+  const hasAllPermissions = !permissionsAll?.length || permissionsAll.every((p) => userPermissions.includes(p))
+
+  if (!hasRole || !hasPermission || !hasAnyPermission || !hasAllPermissions) {
+    return navigateTo('/admin-panel', { replace: true })
+  }
+})
+```
+
+Scenario rule:
+
+```text
+any logged-in admin can open page -> only auth-admin
+one exact permission required -> permission: 'module.action'
+one of many permissions can open page -> permissionsAny: [...]
+all listed permissions required -> permissionsAll: [...]
+one of many roles can open page -> roles: [...]
+roles + permissions both present -> user must satisfy both role and permission checks
+action button visibility -> use backend permissions object from list/detail API, not hardcoded route meta
+unknown current-user permission shape -> inspect API first, then normalize roles/permissions in auth composable/store
+```
 
 ## CMS Auth and Refresh Queue
 
@@ -260,6 +398,45 @@ Rules:
 - Nuxt app-wide state -> `useState`.
 - Vue/Vite app-wide state -> Pinia.
 - Page state -> local refs.
+
+Nuxt scenario rules:
+
+```text
+useState is enough -> small app-wide state, current user, theme-ish value, one or two auth actions, no complex mutations
+Pinia is better -> many auth actions, roles/permissions, loading/error history, refresh token flow, profile update, impersonation, multi-role switching, or cross-module business state
+local ref is better -> state only used by one page/component and does not need to survive route-level sharing
+composable is better -> reusable actions/state pattern without needing full store structure
+```
+
+Use `useState` for simple Accessimate/HeyHomex Nuxt auth unless the existing project already uses Pinia or the auth module grows past basic login/logout/current-user.
+
+Pinia auth shape when justified:
+
+```ts
+export const useAdminAuthStore = defineStore('adminAuth', () => {
+  const user = ref(null)
+  const roles = ref<string[]>([])
+  const permissions = ref<string[]>([])
+  const isLoading = ref(false)
+  const error = ref(null)
+
+  const isLoggedIn = computed(() => !!user.value)
+
+  async function fetchCurrentUser() {
+    try {
+      isLoading.value = true
+      const response = await $fetchAdmin('/admin/user', { method: 'POST' })
+      user.value = response
+      roles.value = response?.data?.roles || []
+      permissions.value = response?.data?.permissions || []
+    } finally {
+      isLoading.value = false
+    }
+  }
+
+  return { user, roles, permissions, isLoading, error, isLoggedIn, fetchCurrentUser }
+})
+```
 
 ## SSR and Hydration Safety
 

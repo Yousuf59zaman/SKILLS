@@ -1,0 +1,4 @@
+interface:
+  display_name: "OrangeBD Workflow"
+  short_description: "Apply OrangeBD project workflow rules."
+  default_prompt: "Use the OrangeBD workflow rules for this project task."

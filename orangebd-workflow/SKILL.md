@@ -122,6 +122,21 @@ When the user asks for a detailed Antigravity-style explanation or asks to expla
 - why each important pattern exists, what can break, and common mistakes to avoid;
 - how to rebuild, extend, or debug the same feature again from scratch.
 
+When the user asks to understand "kon request kon file theke kothay jay", "file by file each request flow", "request flow", "route/API flow", or similar, create or update a dedicated `.md` file. Match the structure/style of `docs/request-flow-file-by-file.md` when that file exists in the project: start with a short mental model, then main files, request map tables, numbered flow sections for each route/API request, shared fetch/wrapper flow, middleware-vs-provider or framework timing, debug checklist, common mistakes, and a short final summary. Use Banglish/Bangla explanations with English technical terms.
+
+For request-flow docs, accuracy of order is mandatory:
+
+- Before writing tables, inspect the actual framework files that determine order: route/page files, `definePageMeta`, middleware, layouts, plugins/providers, root app file, headers/sidebars, modal coordinator files, composables/hooks, fetch wrappers, server/API proxy files, and small helper files. Do not infer order from folder names.
+- Separate **route/render order** from **action/API request order**. Route/render order means browser route -> app/root -> route match/page meta -> middleware/guard -> layout -> shared layout components such as header/sidebar/footer -> page component -> child components. Action/API order means user event -> component/modal coordinator -> child form/modal -> composable/hook -> fetch wrapper -> backend/server endpoint -> state/cookie/redirect handling.
+- In route tables, never put page render before route middleware when the framework runs middleware first. For Nuxt, show `app.vue`/root, route match, `definePageMeta` middleware, route middleware, selected layout, layout components, then page content. For Next.js, show request-time `middleware.ts` before route component/provider rendering when applicable.
+- Include route requests and API requests separately. Label table columns precisely, such as `File/render order` for route rows and `Action/request order` for button/API rows. Do not use one generic "file order" column when it mixes different lifecycle types.
+- For every request row, include the smallest relevant files in order with clickable links: pages/routes, middleware/guards, layouts, headers/sidebars/footers, modal coordinator, exact modal/form component, composable/hook/service, fetch wrapper/client, server proxy route, backend endpoint, and helper used for redirect/state. If a tiny file is part of the flow, do not omit it just because it has little code.
+- If the exact file is dynamic or many pages share the same flow, say `target page component` only after listing the shared concrete files that always run first. Prefer concrete filenames over broad labels.
+- For each request show: request name/method, starts from, frontend files in the verified order, backend endpoint, request body/params, state/cookie/header behavior, redirects, provider/layout/middleware timing, and common debug checks.
+- After drafting, do a consistency pass over every table and numbered flow: verify no row contradicts the framework timing, no middleware/layout/provider is missing, and no API/action flow is accidentally described as route render order.
+
+For Next.js, explicitly separate `middleware.ts` request-time behavior from React provider/context client-side behavior. For Nuxt, explicitly separate plugins, `app.vue`, route match/page meta, route middleware, layouts, layout components, pages/components, composables, and `$fetch` wrappers.
+
 ## Testing and review
 
 - Use Codex-style code review for review requests: findings first, ordered by severity, with file/line references.

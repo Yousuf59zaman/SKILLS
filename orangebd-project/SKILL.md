@@ -122,6 +122,7 @@ Before wiring data:
 4. Confirm endpoint, method, request body, and response shape.
 5. Confirm pagination shape and permission shape for lists.
 6. Confirm loading, error, empty, auth redirect, and validation behavior.
+7. For auth/state changes, use `references/auth-api-state.md` scenario rules before choosing `useState` vs Pinia, `router.push` vs hard reload, or page permission/role metadata.
 ```
 
 Expected admin list response shape:
