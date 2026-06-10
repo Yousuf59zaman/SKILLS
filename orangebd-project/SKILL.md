@@ -177,6 +177,8 @@ common mistakes
 how to rebuild/debug later
 ```
 
+For API route/request flow documentation, follow the OrangeBD Workflow request-flow style: request-by-request sections with exact route/action order, concrete filenames, clickable line references, request body/params, token/header behavior, wrapper/backend path, response handling, emitted events, parent/coordinator state changes, and next modal/page. If the user asks "aro details e each file by file line e niye bujhaw kono small step baad dibana", expand the selected request into numbered micro-steps and include small state/template/watch/validation/loading/error/timer/dropdown/cookie/useState details instead of giving only a summary.
+
 ## Final Delivery Rule
 
 Every final answer for OrangeBD project work must include:
