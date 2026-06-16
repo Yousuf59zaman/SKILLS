@@ -1,7 +1,9 @@
 # Local Skill Catalog
 
-Generated: 2026-06-16 06:47:55Z
-Root: `C:\Users\This pc\.codex\skills`
+Generated: 2026-06-16 07:27:55Z
+Roots:
+- `C:\Users\This pc\.codex\skills`
+- `C:\Users\This pc\.codex\plugins\cache`
 
 Use this catalog for routing only. Always read a selected skill before following it.
 
@@ -28,3 +30,8 @@ Use this catalog for routing only. Always read a selected skill before following
 - `plugin-creator` (`plugin-creator`): Create and scaffold plugin directories for Codex with a required `.codex-plugin/plugin.json`, optional plugin folders/files, valid manifest defaults, and personal-marketplace entries by default. Use when Codex needs to create a new personal plugin, add optional plugin structure, generate or update marketplace entries for plugin ordering and availability metadata, or update an existing local plugin during development with the CLI-driven cachebuster and reinstall flow. Warning: description/body contains TODO.
 - `skill-creator` (`skill-creator`): Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends Codex's capabilities with specialized knowledge, workflows, or tool integrations.
 - `skill-installer` (`skill-installer`): Install Codex skills into $CODEX_HOME/skills from a curated list or a GitHub repo path. Use when a user asks to list installable skills, install a curated skill, or install a skill from another repo (including private repos).
+
+## Plugin Skills
+
+- `control-chrome` (`control-chrome`): Control the user's Chrome browser for tasks that depend on existing Chrome state: tabs, logged-in sessions, cookies, or extensions. Prefer purpose-built connectors, APIs, or CLIs when available.
+- `control-in-app-browser` (`control-in-app-browser`): Control the in-app Browser. Use to open, navigate, inspect, test, click, type, screenshot, or verify local targets such as localhost, 127.0.0.1, ::1, file://, the current in-app browser tab, and websites shown side by side inside Codex.

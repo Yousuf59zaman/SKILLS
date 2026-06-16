@@ -10,11 +10,13 @@ Use this as a quiet router for local MCP servers and CLI commands. Its job is to
 ## Routing Workflow
 
 1. Restate the task internally as intent, artifact/repo/service context, needed evidence, and risk level.
-2. Check the local MCP/CLI catalog when the best tool is not obvious:
+2. Check the live MCP/CLI catalog when the best tool is not obvious:
 
 ```bash
 node "$SKILL_DIR/scripts/catalog-mcp-cli.mjs" --query "<user task>"
 ```
+
+The script combines the maintained known-tool list with dynamic discovery. It includes configured Codex MCP servers even when they are not in the known list, detects exact CLI command names mentioned in the task when they exist on PATH, and detects package scripts from the current repo via `--cwd <path>`.
 
 If the catalog may be stale, regenerate it first:
 
@@ -67,4 +69,4 @@ node "$SKILL_DIR/scripts/catalog-mcp-cli.mjs" --write "$SKILL_DIR/references/too
 
 ## Catalog
 
-Read `references/tool-catalog.md` only when script execution is unavailable or a human-readable list is useful. Regenerate it after installing, removing, or editing MCP/CLI tools.
+Read `references/tool-catalog.md` only when script execution is unavailable or a human-readable list is useful. Treat it as a snapshot, not authority. Regenerate it after installing, removing, or editing MCP/CLI tools.

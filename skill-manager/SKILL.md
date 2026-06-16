@@ -10,11 +10,13 @@ Use this as a quiet router for local skills. Its job is to decide whether anothe
 ## Routing Workflow
 
 1. Restate the task internally as an intent, artifact type, repo/tool context, and risk level.
-2. Check the local catalog:
+2. Check the live local catalog:
 
 ```bash
 python "$SKILL_DIR/scripts/catalog-skills.py" --query "<user task>"
 ```
+
+The script scans `%CODEX_HOME%\skills` plus `%CODEX_HOME%\plugins\cache` by default, so newly installed user/system/plugin skills can be discovered without editing this skill. Add `--extra-root <path>` for any future custom skills folder, or `--no-plugin-cache` only when plugin skills should be ignored.
 
 If the catalog may be stale, regenerate it first:
 
@@ -51,4 +53,4 @@ python "$SKILL_DIR/scripts/catalog-skills.py" --write "$SKILL_DIR/references/ski
 
 ## Catalog
 
-Read `references/skill-catalog.md` only when script execution is unavailable or when a human-readable list is useful. Regenerate it after installing, removing, or editing skills.
+Read `references/skill-catalog.md` only when script execution is unavailable or when a human-readable list is useful. Treat it as a snapshot, not authority. Regenerate it after installing, removing, or editing skills.
