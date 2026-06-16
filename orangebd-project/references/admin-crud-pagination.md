@@ -241,6 +241,61 @@ Object.keys(formData.value).forEach((field) => {
 if (Object.keys(validations_errors.value).length > 0) return
 ```
 
+## File and Image Upload Modal Pattern
+
+Use this for modules like categories, videos, advertisements, galleries, portfolios, and CMS content with images/files.
+
+State:
+
+```ts
+const formData = ref({
+  id: null,
+  name: '',
+  slug: '',
+  description: '',
+  is_active: 1,
+  image: null,
+})
+
+const imagePreview = ref(null)
+const fileInput = ref(null)
+```
+
+Create/update request:
+
+```ts
+const submitFormData = new FormData()
+submitFormData.append('name', formData.value.name.trim())
+submitFormData.append('slug', formData.value.slug.trim())
+submitFormData.append('is_active', formData.value.is_active ? '1' : '0')
+
+if (formData.value.description) {
+  submitFormData.append('description', formData.value.description.trim())
+}
+
+if (formData.value.image instanceof File) {
+  submitFormData.append('image', formData.value.image)
+}
+```
+
+For Laravel-style update endpoints that expect method spoofing:
+
+```ts
+submitFormData.append('_method', 'PATCH')
+await $fetchAdmin(`categories/${props.item.id}/update`, {
+  method: 'POST',
+  body: submitFormData,
+})
+```
+
+Rules:
+
+- Keep upload preview and file input refs local to `AddEdit.vue`.
+- Auto-generate slugs from name only on create unless edit behavior is explicitly required.
+- Map backend 422 errors from the real response key: `errors` or `data`.
+- After save, either emit the saved row or call `loadData()` based on the closest existing module's pattern.
+- Do not send JSON when the form includes a `File`; use `FormData`.
+
 ## Delete and Restore Pattern
 
 ```ts

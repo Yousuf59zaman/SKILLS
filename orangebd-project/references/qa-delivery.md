@@ -22,15 +22,21 @@ Do not revert unrelated dirty changes.
 
 Use project scripts. Do not assume scripts.
 
-CPIS scripts commonly include:
+CPIS `dev` branch frontend scripts currently include:
 
 ```json
 {
   "dev": "vite",
-  "build": "run-p type-check \"build-only {@}\" --",
-  "type-check": "vue-tsc --build",
-  "lint": "run-s lint:*",
-  "format": "prettier --write --experimental-cli src/"
+  "build": "vite build"
+}
+```
+
+CPIS Laravel scripts commonly include:
+
+```json
+{
+  "dev": "concurrently runs php artisan serve, queue listener, pail logs, and npm run dev",
+  "test": "php artisan test"
 }
 ```
 
@@ -181,4 +187,3 @@ If credentials/server unavailable:
 ```text
 I verified build/typecheck/static behavior. I could not verify the authenticated browser flow because credentials/server were not available.
 ```
-

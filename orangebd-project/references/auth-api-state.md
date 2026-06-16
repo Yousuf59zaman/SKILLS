@@ -27,6 +27,7 @@ router.beforeEach(authMiddleware)
 export const $XADM_TOKEN = 'XADM-TOKEN'
 export const $XCTN_TOKEN = 'XCTN-TOKEN'
 export const $XCMS_TOKEN = 'XCMS-TOKEN'
+export const $XADV_TOKEN = 'XADV-TOKEN'
 ```
 
 Meaning:
@@ -35,6 +36,7 @@ Meaning:
 XADM-TOKEN: admin user
 XCTN-TOKEN: citizen/customer user
 XCMS-TOKEN: CMS machine/client token
+XADV-TOKEN: advertiser user when advertiser auth is separate
 ```
 
 Use `Authorization: Bearer <token>`.
@@ -65,6 +67,15 @@ const response = await $fetchAdmin('admin/users/all', {
 
 Do not spread raw `fetch()` with token logic across pages.
 
+Use the matching wrapper by role/API ownership:
+
+```text
+$fetchAdmin: admin panel and admin CMS endpoints
+$fetchCitizen: citizen/customer/user-role portal endpoints
+$fetchCMS: CMS machine/client token endpoints with refresh queue
+$fetchAdvertiser: advertiser endpoints only when the project has a separate advertiser token
+```
+
 ## Runtime Config Pattern
 
 If admin/citizen API separated:
@@ -91,6 +102,8 @@ runtimeConfig: {
   },
 }
 ```
+
+Existing Accessimate/HeyHomex dev branches still expose some CMS values through public runtime config. Treat that as source evidence to understand the current code, not as the preferred pattern for new projects.
 
 ## Admin Auth Composable Pattern
 
@@ -498,6 +511,8 @@ Rules:
 - Normalize route access in middleware.
 - Keep slug mismatch mapping explicit.
 - Do not duplicate segment redirect per page.
+- For HeyHomex-style role portals, map `kamaaina` to `kamaina`, then allow only the current user's segment among `kamaina`, `military`, `investor`, `agent`, and `advertisers`.
+- Put onboarding/subscription redirects in middleware or a dedicated composable, not in every page.
 
 ## `useHead` and `useAsyncData`
 

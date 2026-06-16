@@ -41,11 +41,12 @@ Prefer `rg`/`rg --files` for search. Use parallel reads where useful.
 Load only the references needed for the task:
 
 - `references/common-patterns.md`: architecture, folders, naming, UI structure, small conventions, component rules.
+- `references/nuxt-vue-future-patterns.md`: future Nuxt/Vue/Inertia app structure, feature flows, admin/citizen/workflow patterns, and source references from Accessimate, HeyHomex, and CPIS `dev` branches.
 - `references/auth-api-state.md`: auth composables, middleware, cookies/tokens, API wrappers, SSR/hydration, server API.
 - `references/admin-crud-pagination.md`: admin list pages, AddEdit modal, permissions, delete/restore, pagination, validation.
 - `references/qa-delivery.md`: test/build/browser checks, final response, review and documentation rules.
 
-For a new or broad OrangeBD frontend task, read all four references before planning or editing.
+For a new or broad OrangeBD frontend task, read `common-patterns.md`, `nuxt-vue-future-patterns.md`, `auth-api-state.md`, `admin-crud-pagination.md`, and `qa-delivery.md` before planning or editing.
 
 ## Project Family Defaults
 
@@ -53,13 +54,16 @@ Use the matching family:
 
 ```text
 Nuxt apps: Accessimate / HeyHomex pattern
-Vue + Vite apps: CPIS pattern
-Laravel + Inertia apps: Laravel route/controller + Inertia page pattern
+Nuxt 4 app-directory apps: HeyHomex pattern
+Nuxt 3 root-directory apps: Accessimate pattern
+Laravel + Inertia + Vue apps: CPIS pattern
+Standalone Vue + Vite apps: inspect local router/store/components first; do not assume CPIS patterns unless the app is Inertia-backed
 ```
 
 Nuxt default folders:
 
 ```text
+app/                # use when the project already uses Nuxt appDir or is a new Nuxt 4-style app
 components/
 composables/
 layouts/

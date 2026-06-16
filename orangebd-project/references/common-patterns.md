@@ -17,9 +17,12 @@ Backend owns pagination/search/filter/sort for production lists.
 ## Project Roots Used To Derive This Pattern
 
 ```text
-D:\Orangebd\CPIS
-D:\Orangebd\Accessimate_Nuxt-Next\accesimate-fontend
-D:\Orangebd\HeyHomex\heyhomex_frontend
+D:\orange-bd\Nuxt-vue\accesimate-fontend
+  dev branch, eef7cbe, https://github.com/Motakabbir/accesimate-fontend.git
+D:\orange-bd\Nuxt-vue\heyhomex_frontend
+  dev branch, 3928c47, https://github.com/orange-bd/heyhomex_frontend.git
+D:\orange-bd\Nuxt-vue\cpis
+  dev branch, fe0f7e2, https://github.com/orange-bd/cpis.git
 ```
 
 ## Stack Families
@@ -27,18 +30,24 @@ D:\Orangebd\HeyHomex\heyhomex_frontend
 CPIS:
 
 ```text
-Vue 3 + Vite + Vue Router + Pinia + Tailwind + lucide-vue-next
+Laravel 12 + Inertia 2 + Vue 3 + Vite + Tailwind 4 + Ziggy + Axios + lucide-vue-next + FontAwesome
 ```
 
-Accessimate / HeyHomex:
+Accessimate:
 
 ```text
-Nuxt + Vue 3 + Tailwind + PrimeVue + FontAwesome/PrimeIcons/Heroicons + Nuxt auto-imports
+Nuxt 3.21 + Vue 3 + Tailwind + PrimeVue 4 + FontAwesome/PrimeIcons/Heroicons + Nuxt auto-imports
+```
+
+HeyHomex:
+
+```text
+Nuxt 4.1 app directory + Vue 3 + Tailwind + PrimeVue 4 + Nuxt Icon + media/maps/payment integrations
 ```
 
 ## Folder Structure Defaults
 
-Nuxt:
+Nuxt root-directory app, like Accessimate:
 
 ```text
 components/
@@ -60,19 +69,37 @@ assets/
 public/
 ```
 
-Vue/Vite:
+Nuxt app-directory app, like HeyHomex:
 
 ```text
-src/components/
-src/composables/
-src/layouts/
-src/middleware/
-src/pages/
-src/plugins/
-src/router/
-src/stores/
-src/utils/
-src/assets/
+app/
+  components/
+  composables/
+  layouts/
+  middleware/
+  pages/
+  plugins/
+  utils/
+  assets/
+public/
+server/
+```
+
+Laravel + Inertia + Vue, like CPIS:
+
+```text
+resources/js/
+  Components/
+  Composables/
+  Layouts/
+  Pages/
+  services/
+  utils/
+resources/css/
+routes/
+app/Http/Controllers/
+app/Http/Middleware/
+app/Traits/
 ```
 
 ## Layout Pattern

@@ -1,4 +1,4 @@
 interface:
   display_name: "OrangeBD Project"
-  short_description: "Strict OrangeBD project workflow and common frontend patterns."
-  default_prompt: "Use the OrangeBD project workflow and common patterns before working on this project."
+  short_description: "Strict OrangeBD workflow plus future Nuxt/Vue/Inertia frontend patterns."
+  default_prompt: "Use the OrangeBD project workflow and Nuxt/Vue/Inertia patterns before working on this project."
