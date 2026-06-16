@@ -52,6 +52,7 @@ class Skill:
     name: str
     description: str
     path: str
+    root: str
     scope: str
     has_todo: bool
 
@@ -64,6 +65,10 @@ def codex_home() -> Path:
 
 def default_root() -> Path:
     return codex_home() / "skills"
+
+
+def plugin_cache_root() -> Path:
+    return codex_home() / "plugins" / "cache"
 
 
 def frontmatter(text: str) -> str:
@@ -82,7 +87,7 @@ def field_value(frontmatter_text: str, field: str) -> str:
     return value.strip()
 
 
-def discover(root: Path) -> list[Skill]:
+def discover(root: Path, default_scope: str | None = None) -> list[Skill]:
     skills: list[Skill] = []
     if not root.exists():
         return skills
@@ -100,7 +105,7 @@ def discover(root: Path) -> list[Skill]:
             rel_text = str(rel)
         except ValueError:
             rel_text = str(skill_dir)
-        scope = "system" if rel_text.startswith(".system") else "user"
+        scope = default_scope or ("system" if rel_text.startswith(".system") else "user")
         has_todo = "TODO" in description or "TODO" in text[:1200]
         skills.append(
             Skill(
@@ -108,11 +113,31 @@ def discover(root: Path) -> list[Skill]:
                 name=name,
                 description=description,
                 path=str(skill_dir),
+                root=str(root),
                 scope=scope,
                 has_todo=has_todo,
             )
         )
     return skills
+
+
+def dedupe_skills(skills: list[Skill]) -> list[Skill]:
+    best: dict[tuple[str, str, str], Skill] = {}
+    for skill in skills:
+        key = (skill.scope, skill.name.lower(), skill.description)
+        current = best.get(key)
+        if current is None:
+            best[key] = skill
+            continue
+        skill_norm = skill.path.replace("\\", "/")
+        current_norm = current.path.replace("\\", "/")
+        skill_is_latest = "/latest/" in skill_norm
+        current_is_latest = "/latest/" in current_norm
+        if skill_is_latest and not current_is_latest:
+            best[key] = skill
+        elif skill_is_latest == current_is_latest and len(skill.path) < len(current.path):
+            best[key] = skill
+    return sorted(best.values(), key=lambda item: (item.scope, item.name.lower(), item.path.lower()))
 
 
 def tokens(text: str) -> set[str]:
@@ -167,20 +192,27 @@ def confidence(score: int) -> str:
     return "low"
 
 
-def catalog_markdown(skills: list[Skill], root: Path) -> str:
+def catalog_markdown(skills: list[Skill], roots: list[Path]) -> str:
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
     lines = [
         "# Local Skill Catalog",
         "",
         f"Generated: {generated}",
-        f"Root: `{root}`",
+        "Roots:",
+        *[f"- `{root}`" for root in roots],
         "",
         "Use this catalog for routing only. Always read a selected skill before following it.",
         "",
     ]
-    for scope in ("user", "system"):
+    for scope in ("user", "system", "plugin", "extra"):
         scoped = [skill for skill in skills if skill.scope == scope]
+        if not scoped:
+            continue
         title = "User Skills" if scope == "user" else "System Skills"
+        if scope == "plugin":
+            title = "Plugin Skills"
+        elif scope == "extra":
+            title = "Extra Root Skills"
         lines.extend([f"## {title}", ""])
         for skill in scoped:
             caution = " Warning: description/body contains TODO." if skill.has_todo else ""
@@ -191,20 +223,33 @@ def catalog_markdown(skills: list[Skill], root: Path) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Catalog and rank local Codex skills.")
-    parser.add_argument("--root", default=str(default_root()), help="Skills root directory")
+    parser.add_argument("--root", default=str(default_root()), help="Primary skills root directory")
+    parser.add_argument("--extra-root", action="append", default=[], help="Additional skills root to scan; may be repeated")
+    parser.add_argument("--no-plugin-cache", action="store_true", help="Do not scan CODEX_HOME/plugins/cache for plugin skills")
     parser.add_argument("--query", help="Task text to rank skills for")
     parser.add_argument("--limit", type=int, default=5)
     parser.add_argument("--write", help="Write markdown catalog to this path")
     parser.add_argument("--json", action="store_true", help="Emit full catalog as JSON")
     args = parser.parse_args()
 
-    root = Path(args.root).expanduser().resolve()
-    skills = discover(root)
+    primary_root = Path(args.root).expanduser().resolve()
+    roots: list[tuple[Path, str | None]] = [(primary_root, None)]
+    if not args.no_plugin_cache:
+        cache = plugin_cache_root().expanduser().resolve()
+        if cache.exists():
+            roots.append((cache, "plugin"))
+    for raw in args.extra_root:
+        roots.append((Path(raw).expanduser().resolve(), "extra"))
+
+    skills: list[Skill] = []
+    for root, scope in roots:
+        skills.extend(discover(root, scope))
+    skills = dedupe_skills(skills)
 
     if args.write:
         output = Path(args.write).expanduser().resolve()
         output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(catalog_markdown(skills, root), encoding="utf-8")
+        output.write_text(catalog_markdown(skills, [root for root, _ in roots]), encoding="utf-8")
 
     if args.query:
         print(json.dumps(ranked(skills, args.query, args.limit), indent=2, ensure_ascii=False))
@@ -214,7 +259,7 @@ def main() -> int:
         print(json.dumps([skill.__dict__ for skill in skills], indent=2, ensure_ascii=False))
         return 0
 
-    sys.stdout.write(catalog_markdown(skills, root))
+    sys.stdout.write(catalog_markdown(skills, [root for root, _ in roots]))
     return 0
 
 

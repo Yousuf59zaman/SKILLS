@@ -1,6 +1,6 @@
 # MCP/CLI Tool Catalog
 
-Generated: 2026-06-16T06:46:57.307Z
+Generated: 2026-06-16T07:28:17.704Z
 Codex config: `C:\Users\This pc\.codex\config.toml`
 
 Use this catalog for routing only. Prefer read-only inspection before write actions.
@@ -28,6 +28,9 @@ Use this catalog for routing only. Prefer read-only inspection before write acti
 - **ok** MCP Toolbox (mcp: `mcp_toolbox`)
   - Use: Inspect SQL databases through MCP, configured safely for local SQLite by default.
   - Safe first: Read schema/list tables/select only.
+- **ok** node_repl MCP (mcp: `node_repl`)
+  - Use: Configured MCP server named "node_repl". Inspect its available tools/resources before using it.
+  - Safe first: List/read/status operations first; avoid write actions unless explicitly requested.
 
 ## CLI Tools
 

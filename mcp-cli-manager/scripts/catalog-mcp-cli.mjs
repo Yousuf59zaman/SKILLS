@@ -13,6 +13,16 @@ const STOPWORDS = new Set([
   'the', 'and', 'for', 'with', 'that', 'this', 'file', 'files', 'from', 'into',
   'not', 'of', 'on', 'to', 'use', 'using', 'task', 'please', 'koro', 'korte',
   'amar', 'amr', 'ami', 'tumi', 'ki', 'na', 'taile', 'jodi', 'hoy', 'way',
+  'command', 'commands',
+]);
+
+const COMMAND_TOKEN_STOPWORDS = new Set([
+  ...STOPWORDS,
+  'add', 'all', 'app', 'ask', 'build', 'check', 'clean', 'create', 'debug',
+  'delete', 'deploy', 'do', 'docs', 'edit', 'error', 'find', 'fix', 'get',
+  'help', 'install', 'list', 'make', 'open', 'pull', 'push', 'read', 'remove',
+  'run', 'search', 'setup', 'show', 'start', 'status', 'sync', 'test', 'tool',
+  'update', 'verify', 'write',
 ]);
 
 const TOOLS = [
@@ -244,12 +254,12 @@ const TOOLS = [
 ];
 
 function usage(exitCode = 0) {
-  console.log(`Usage: node scripts/catalog-mcp-cli.mjs [options]\n\nCatalog and rank local MCP servers and CLI tools.\n\nOptions:\n  --query <text>    Rank tools for a task.\n  --limit <n>       Max ranked results. Default: 8.\n  --write <path>    Write a markdown catalog.\n  --json            Emit the full catalog as JSON when no query is given.\n  --help            Show help.\n`);
+  console.log(`Usage: node scripts/catalog-mcp-cli.mjs [options]\n\nCatalog and rank local MCP servers and CLI tools.\n\nOptions:\n  --query <text>    Rank tools for a task.\n  --limit <n>       Max ranked results. Default: 8.\n  --write <path>    Write a markdown catalog.\n  --cwd <path>      Project directory for package-script discovery. Default: current directory.\n  --json            Emit the full catalog as JSON when no query is given.\n  --help            Show help.\n`);
   process.exit(exitCode);
 }
 
 function parseArgs(argv) {
-  const opts = { query: '', limit: 8, write: '', json: false };
+  const opts = { query: '', limit: 8, write: '', cwd: process.cwd(), json: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const next = () => {
@@ -260,10 +270,12 @@ function parseArgs(argv) {
     else if (arg === '--query') opts.query = next();
     else if (arg === '--limit') opts.limit = Number.parseInt(next(), 10);
     else if (arg === '--write') opts.write = next();
+    else if (arg === '--cwd') opts.cwd = next();
     else if (arg === '--json') opts.json = true;
     else throw new Error(`Unknown option: ${arg}`);
   }
   if (!Number.isFinite(opts.limit) || opts.limit < 1) opts.limit = 8;
+  opts.cwd = path.resolve(opts.cwd || process.cwd());
   return opts;
 }
 
@@ -346,8 +358,85 @@ function configuredMcpNames(text) {
   const names = new Set();
   const re = /^\s*\[mcp_servers\.(?:"([^"]+)"|'([^']+)'|([^\]\s]+))]\s*$/gm;
   let match;
-  while ((match = re.exec(text))) names.add(match[1] || match[2] || match[3]);
+  while ((match = re.exec(text))) {
+    const name = match[1] || match[2] || match[3];
+    if (!name || name.endsWith('.env')) continue;
+    names.add(name);
+  }
   return names;
+}
+
+function toolCommandNames(tool) {
+  return Array.isArray(tool.commands) ? tool.commands : Object.keys(tool.commands || {});
+}
+
+function knownCommandNames(rows) {
+  const names = new Set();
+  for (const row of rows) {
+    for (const command of Object.keys(row.commands || {})) names.add(command.toLowerCase());
+    for (const command of toolCommandNames(row)) names.add(String(command).toLowerCase());
+  }
+  return names;
+}
+
+function genericMcpTool(name) {
+  const words = String(name).split(/[^a-zA-Z0-9]+/).filter(Boolean);
+  return {
+    id: `mcp:${name}`,
+    type: 'mcp',
+    label: `${name} MCP`,
+    installed: true,
+    configured: true,
+    commands: {},
+    mcpName: name,
+    use: `Configured MCP server named "${name}". Inspect its available tools/resources before using it.`,
+    safeFirst: 'List/read/status operations first; avoid write actions unless explicitly requested.',
+    keywords: [name, ...words],
+    dynamic: true,
+  };
+}
+
+function dynamicCliTool(command, hit) {
+  return {
+    id: `cli:${command}`,
+    type: 'cli',
+    label: `${command} CLI`,
+    installed: true,
+    configured: null,
+    commands: { [command]: hit },
+    mcpName: null,
+    use: `Installed CLI command named "${command}". Prefer --help/status/read-only commands first.`,
+    safeFirst: `\`${command} --help\` or read-only status/list commands before writes.`,
+    keywords: [command],
+    dynamic: true,
+  };
+}
+
+function projectTool(cwd) {
+  const pkg = path.join(cwd, 'package.json');
+  if (!fs.existsSync(pkg)) return null;
+  try {
+    const data = JSON.parse(fs.readFileSync(pkg, 'utf8'));
+    const scripts = Object.keys(data.scripts || {});
+    const manager = String(data.packageManager || '').split('@')[0] || (fs.existsSync(path.join(cwd, 'pnpm-lock.yaml')) ? 'pnpm' : fs.existsSync(path.join(cwd, 'yarn.lock')) ? 'yarn' : 'npm');
+    const hit = findCommand(manager);
+    if (!scripts.length && !hit) return null;
+    return {
+      id: 'project-scripts',
+      type: 'cli',
+      label: 'Project package scripts',
+      installed: Boolean(hit),
+      configured: null,
+      commands: hit ? { [manager]: hit } : {},
+      mcpName: null,
+      use: `Run this repo's package scripts: ${scripts.slice(0, 20).join(', ') || 'none listed'}.`,
+      safeFirst: `${manager} run, ${manager} test/lint/build only when relevant; inspect package.json first.`,
+      keywords: ['package', 'scripts', 'npm', 'pnpm', 'yarn', manager, ...scripts],
+      dynamic: true,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function tokens(text) {
@@ -371,6 +460,7 @@ function scoreTool(tool, query) {
     ...(tool.keywords || []),
     tool.use,
   ].join(' ').toLowerCase();
+  const haystackTokens = tokens(haystack);
   const keywordSet = new Set((tool.keywords || []).map(s => s.toLowerCase()));
   const matched = [];
   let score = 0;
@@ -378,7 +468,7 @@ function scoreTool(tool, query) {
     if (keywordSet.has(token)) {
       score += 9;
       matched.push(token);
-    } else if (haystack.includes(token)) {
+    } else if (haystackTokens.has(token)) {
       score += 3;
       matched.push(token);
     }
@@ -395,12 +485,12 @@ function confidence(score) {
   return 'low';
 }
 
-function inspectTools() {
+function inspectTools(cwd = process.cwd()) {
   const configText = readConfig();
   const mcpNames = configuredMcpNames(configText);
-  return TOOLS.map(tool => {
+  const rows = TOOLS.map(tool => {
     const commandHits = {};
-    for (const command of tool.commands || []) {
+    for (const command of toolCommandNames(tool)) {
       const hit = findCommand(command);
       if (hit) commandHits[command] = hit;
     }
@@ -419,10 +509,34 @@ function inspectTools() {
       keywords: tool.keywords,
     };
   });
+  const knownMcpNames = new Set(TOOLS.map(tool => tool.mcpName).filter(Boolean));
+  for (const name of [...mcpNames].sort()) {
+    if (!knownMcpNames.has(name)) rows.push(genericMcpTool(name));
+  }
+  const project = projectTool(cwd);
+  if (project) rows.push(project);
+  return rows;
 }
 
-function rankedCatalog(query, limit) {
-  return inspectTools()
+function dynamicCliToolsForQuery(query, existingRows) {
+  const known = knownCommandNames(existingRows);
+  const out = [];
+  for (const token of tokens(query)) {
+    if (token.length < 2 || COMMAND_TOKEN_STOPWORDS.has(token) || known.has(token)) continue;
+    if (!/^[a-z0-9][a-z0-9._-]{1,}$/i.test(token)) continue;
+    const hit = findCommand(token);
+    if (hit) {
+      known.add(token);
+      out.push(dynamicCliTool(token, hit));
+    }
+  }
+  return out;
+}
+
+function rankedCatalog(query, limit, cwd = process.cwd()) {
+  const base = inspectTools(cwd);
+  const catalog = [...base, ...dynamicCliToolsForQuery(query, base)];
+  return catalog
     .map(tool => {
       const { score, matched } = scoreTool(tool, query);
       return { ...tool, score, confidence: confidence(score), matchedTerms: matched };
@@ -460,14 +574,14 @@ function markdownCatalog(rows) {
 
 function main() {
   const opts = parseArgs(process.argv.slice(2));
-  const catalog = inspectTools();
+  const catalog = inspectTools(opts.cwd);
   if (opts.write) {
     const out = path.resolve(opts.write);
     fs.mkdirSync(path.dirname(out), { recursive: true });
     fs.writeFileSync(out, markdownCatalog(catalog), 'utf8');
   }
   if (opts.query) {
-    console.log(JSON.stringify(rankedCatalog(opts.query, opts.limit), null, 2));
+    console.log(JSON.stringify(rankedCatalog(opts.query, opts.limit, opts.cwd), null, 2));
     return;
   }
   if (opts.json) {
