@@ -1,0 +1,7 @@
+interface:
+  display_name: "MCP/CLI Manager"
+  short_description: "Routes tasks to useful MCP and CLI tools"
+  default_prompt: "Use $mcp-cli-manager to choose useful MCP or CLI tools for this task."
+
+policy:
+  allow_implicit_invocation: true

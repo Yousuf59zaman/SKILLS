@@ -7,11 +7,12 @@ description: Unified agent-environment sync for Codex, Claude, and Antigravity. 
 
 Use this umbrella skill for agent environment synchronization.
 
-It contains three sync tracks:
+It contains four sync tracks:
 
 1. **Skills sync** — make Codex, Claude, and Antigravity share the same AgentSkill folder union.
-2. **MCP sync** — make Codex and Antigravity share the same MCP server definition union.
-3. **CLI sync** — make Codex and Antigravity terminals share PATH access for installed CLI tools.
+2. **Tools setup** — check/install the top developer MCP/CLI tool set and add safe Codex MCP blocks.
+3. **MCP sync** — make Codex and Antigravity share the same MCP server definition union.
+4. **CLI sync** — make Codex and Antigravity terminals share PATH access for installed CLI tools.
 
 ## Quick commands
 
@@ -31,6 +32,7 @@ Run one track only:
 
 ```bash
 node skills/agent-sync/scripts/agent-sync.mjs skills --apply --create-missing-roots
+node skills/agent-sync/scripts/agent-sync.mjs tools --apply
 node skills/agent-sync/scripts/agent-sync.mjs mcp --apply
 node skills/agent-sync/scripts/agent-sync.mjs cli --apply
 ```
@@ -52,7 +54,10 @@ What it does:
   - Antigravity: `%USERPROFILE%\.gemini\antigravity\skills`
 - Copies missing skills on `--apply`.
 - Replaces differing same-name skills with the newest recursive folder version, after backup.
-- Can include GitHub as a sync/publish target with `--push-github`.
+- Blocks replacement when different versions have near-tied mtimes, so a risky "newest" choice is not guessed.
+- On `--apply`, preserves every near-tied differing candidate in a conflict bundle without changing the active skill folders.
+- Always compares the local skill union with the configured GitHub Skills repo during normal dry-run/apply, unless Yousuf explicitly asks for local-only and `--no-github-check` is used.
+- Can include GitHub as a sync/publish target with `--push-github`, after Yousuf chooses the GitHub action.
 - Avoids Antigravity extension/vendor skill folders by default.
 
 Useful commands:
@@ -60,8 +65,79 @@ Useful commands:
 ```bash
 node skills/agent-sync/scripts/sync-agent-skills.mjs --json
 node skills/agent-sync/scripts/sync-agent-skills.mjs --apply --create-missing-roots
-node skills/agent-sync/scripts/sync-agent-skills.mjs --apply --create-missing-roots --push-github
+node skills/agent-sync/scripts/sync-agent-skills.mjs --apply --create-missing-roots --no-content-sync
+node skills/agent-sync/scripts/sync-agent-skills.mjs --apply --create-missing-roots --push-github --github-decision merge-and-push-branch
+node skills/agent-sync/scripts/sync-agent-skills.mjs --apply --create-missing-roots --push-github --github-decision merge-and-push-branch --github-branch-prefix agent-sync
 ```
+
+Same-name content differences:
+
+- Dry-run reports skills that exist in every root but have different folder content.
+- `--apply` automatically replaces older differing copies from the clearly newest modified copy.
+- Before replacement, the script backs up the target folder under `%USERPROFILE%\.openclaw\workspace\backups`.
+- If two different versions have mtimes within the ambiguity window, the script blocks that skill instead of guessing.
+- During `--apply`, ambiguous blocked versions are also copied to `%USERPROFILE%\.openclaw\workspace\backups\agent-skills-union-sync-<timestamp>\conflicts\<skill-id>\...` with a `manifest.json`; active Codex/Claude/Antigravity skill folders stay unchanged for that skill.
+- If two locations both look newest and content differs, keep both by preserving the conflict bundle. Inspect manually, touch the intended source copy to make it clearly newest, or pass `--allow-ambiguous-latest` only when Yousuf explicitly accepts latest-wins risk.
+- Use `--no-content-sync` when you only want missing skills copied and never want existing same-name skills replaced.
+
+GitHub publish safety:
+
+- GitHub compare is mandatory for skills sync. Every normal dry-run/apply must report the GitHub repo status, ahead/behind state, local-only skills, GitHub-only skills, same-name content differences, and ambiguous conflicts.
+- If GitHub differs from local roots, ask Yousuf which action he wants before any GitHub write. Do not silently choose pull, push, merge, or conflict strategy.
+- Valid choices to offer:
+  - `local-only`: do not touch GitHub this run.
+  - `pull-merge`: pull GitHub-only/newer skills into Codex, Claude, and Antigravity first.
+  - `merge-and-push-branch`: merge newest both ways and push a new branch.
+  - `direct-push`: push to the checked-out GitHub branch only when Yousuf explicitly asks.
+  - `manual-conflict-review`: keep conflicting newest versions preserved for inspection.
+- Use `--no-github-check` only when Yousuf explicitly says this run is local-only.
+- Use `--push-github` only with `--apply` after Yousuf chooses a GitHub publish/merge action; the script also requires `--github-decision` so direct CLI runs cannot skip the decision gate.
+- For safe publish, use `--github-decision merge-and-push-branch` so the script pushes a new branch.
+- For direct push, use both `--github-decision direct-push` and `--github-direct-push`, only when Yousuf explicitly chooses direct push.
+- Default behavior creates and pushes a new branch named `agent-sync/<timestamp>` instead of pushing directly to the current branch.
+- Use `--github-branch <name>` for a chosen publish branch, or `--github-branch-prefix <name>` for generated branch naming.
+- Use `--github-direct-push` only when Yousuf explicitly asks to push directly to the checked-out branch.
+- The script refuses to publish when the Git worktree has pre-existing uncommitted changes, when `git pull --ff-only` fails, when ambiguous skill conflicts exist, or when credential-like files are detected.
+- Never force-push from this skill. If push fails after commit, rerun after pulling the new remote state or inspect manually.
+
+## Tools setup
+
+Bundled script:
+
+```bash
+node skills/agent-sync/scripts/ensure-dev-tools.mjs
+```
+
+What it checks:
+
+`codex`, Gemini CLI (`gemini`), Claude CLI (`claude`), Antigravity CLI/app launcher (`antigravity`), `git`, GitHub MCP, `gh`, Playwright MCP, Chrome DevTools MCP, Context7 MCP, Firecrawl MCP, Sentry MCP, MCP Toolbox for Databases, `docker`, `kubectl`, `helm`, `terraform`, `supabase`, `vercel`, Postman CLI (`postman`), `pnpm`, `uv`, `rg`, and `jq`.
+
+What `--apply` does:
+
+- Installs missing CLI tools with trusted package managers (`winget` or `npm -g`) when an installer is known.
+- Installs missing npm MCP packages for Playwright, Chrome DevTools, Context7, Firecrawl, and Sentry.
+- Adds missing Codex MCP config blocks for GitHub, Playwright, Chrome DevTools, Context7, Firecrawl, Sentry, and MCP Toolbox.
+- Creates a safe `antigravity.cmd` launcher in `%USERPROFILE%\.local\bin` only when a real Antigravity IDE/app target exists.
+- Leaves already-present tools and existing MCP blocks unchanged.
+- Creates a Codex config backup before adding MCP blocks unless `--no-backup` is passed.
+- Uses environment variable placeholders for secrets. Do not write tokens into config files.
+
+Useful commands:
+
+```bash
+node skills/agent-sync/scripts/ensure-dev-tools.mjs --json
+node skills/agent-sync/scripts/ensure-dev-tools.mjs --apply
+node skills/agent-sync/scripts/agent-sync.mjs all --apply --create-missing-roots
+```
+
+MCP safety notes:
+
+- GitHub MCP uses Docker and expects `GITHUB_PERSONAL_ACCESS_TOKEN` in the environment when used. It is configured read-only by default.
+- Chrome DevTools MCP uses the local Chrome/Chromium debugging bridge. Use it only for browser pages you intend the agent to inspect or control.
+- Context7 can run keyless but supports `CONTEXT7_API_KEY` for higher limits.
+- Firecrawl can run keyless for limited search/scrape, and can use `FIRECRAWL_API_KEY` later.
+- Sentry MCP starts without a stored token; authenticate with Sentry's supported flow or provide `SENTRY_ACCESS_TOKEN` when needed.
+- MCP Toolbox is configured against a local SQLite file at `%USERPROFILE%\.codex\mcp-toolbox\dev.sqlite` so it is safe by default.
 
 ## MCP sync
 
@@ -108,7 +184,7 @@ What it does:
 
 Default verified CLI names include:
 
-`codex`, `claude`, `gemini`, `postman-cli`, `supabase`, `vercel`, `firecrawl`, `higgsfield`, `designlang`, `designmd`, `antigravity`, `code`.
+`codex`, `git`, `gh`, `docker`, `kubectl`, `helm`, `terraform`, `supabase`, `vercel`, `postman`, `pnpm`, `uv`, `rg`, `jq`, `toolbox`, `firecrawl`, `claude`, `gemini`, `antigravity`, `antigravity-ide`, `code`.
 
 Useful commands:
 
@@ -122,8 +198,10 @@ node skills/agent-sync/scripts/sync-codex-antigravity-cli.mjs --cli docker,psql,
 
 1. Dry-run first unless Yousuf explicitly says to apply immediately.
 2. Review missing/copy/replacement/conflict counts.
-3. Apply with the smallest matching command.
-4. Verify:
+3. Review the mandatory GitHub compare section.
+4. If GitHub differs, ask Yousuf to choose `local-only`, `pull-merge`, `merge-and-push-branch`, `direct-push`, or `manual-conflict-review` before running any GitHub write.
+5. Apply with the smallest matching command after the decision.
+6. Verify:
 
 ```bash
 codex mcp list
@@ -134,7 +212,9 @@ node skills/agent-sync/scripts/sync-codex-antigravity-cli.mjs
 
 ## Safety rules
 
-- Do not use `--push-github` unless Yousuf asks to publish/push skills.
+- Do not skip GitHub comparison unless Yousuf explicitly asks for a local-only run.
+- Do not use `--push-github` unless Yousuf chooses to publish/push skills after the mandatory compare.
+- Do not direct-push to GitHub unless Yousuf explicitly asks for direct push after seeing the compare.
 - Do not copy into `.antigravity\extensions\...` vendor folders unless Yousuf explicitly provides that path.
 - Do not overwrite same-name MCP conflicts without manual inspection and user confirmation.
 - MCP sync copies definitions only; login/session state still belongs to each MCP/service.
