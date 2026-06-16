@@ -153,22 +153,35 @@ function scanSkillContent(dir) {
   let latestMtimeMs = 0;
   let skippedSymlinks = 0;
 
+  function hashableData(rel, data) {
+    if (data.includes(0)) return data;
+    const textExts = new Set([
+      '.bat', '.cmd', '.css', '.csv', '.html', '.js', '.json', '.jsx', '.md',
+      '.mjs', '.ps1', '.py', '.toml', '.ts', '.tsx', '.txt', '.vbs', '.vue',
+      '.yaml', '.yml'
+    ]);
+    if (!textExts.has(path.extname(rel).toLowerCase())) return data;
+    return Buffer.from(data.toString('utf8').replace(/\r\n/g, '\n'), 'utf8');
+  }
+
   function walk(current, rel = '') {
     let st;
     try { st = fs.lstatSync(current); } catch { return; }
-    latestMtimeMs = Math.max(latestMtimeMs, st.mtimeMs || 0);
     if (st.isSymbolicLink()) { skippedSymlinks++; return; }
     if (st.isDirectory()) {
       const base = path.basename(current);
       if (rel && NEVER_COPY_DIRS.has(base)) return;
+      latestMtimeMs = Math.max(latestMtimeMs, st.mtimeMs || 0);
       let entries = [];
       try { entries = fs.readdirSync(current, { withFileTypes: true }); } catch { return; }
       entries.sort((a, b) => a.name.localeCompare(b.name));
       for (const ent of entries) walk(path.join(current, ent.name), path.join(rel, ent.name));
     } else if (st.isFile()) {
       const data = fs.readFileSync(current);
+      latestMtimeMs = Math.max(latestMtimeMs, st.mtimeMs || 0);
       bytes += data.length;
-      files.push({ rel: rel.replace(/\\/g, '/'), data });
+      const relText = rel.replace(/\\/g, '/');
+      files.push({ rel: relText, data: hashableData(relText, data) });
     }
   }
 
