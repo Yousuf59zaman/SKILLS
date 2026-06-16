@@ -1,0 +1,4 @@
+interface:
+  display_name: "Vue Data Debugger"
+  short_description: "Trace Vue data from API to UI"
+  default_prompt: "Use $vue-data-debugger to trace why this Vue page is showing wrong or missing data."

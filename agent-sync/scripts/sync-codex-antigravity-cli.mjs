@@ -9,14 +9,23 @@ const LOCALAPPDATA = process.env.LOCALAPPDATA || path.join(HOME, 'AppData', 'Loc
 const DEFAULT_CODEX_CONFIG = path.join(HOME, '.codex', 'config.toml');
 const DEFAULT_AG_SETTINGS = path.join(APPDATA, 'Antigravity', 'User', 'settings.json');
 const DEFAULT_CLI_NAMES = [
-  'codex', 'claude', 'gemini', 'postman-cli', 'supabase', 'vercel',
-  'firecrawl', 'higgsfield', 'designlang', 'designmd', 'antigravity', 'code'
+  'codex', 'git', 'gh', 'docker', 'kubectl', 'helm', 'terraform',
+  'supabase', 'vercel', 'postman', 'pnpm', 'uv', 'rg', 'jq',
+  'toolbox', 'firecrawl', 'claude', 'gemini', 'antigravity', 'antigravity-ide', 'code'
 ];
 const DEFAULT_DIRS = [
   path.join(APPDATA, 'npm'),
+  path.join(HOME, '.local', 'bin'),
+  path.join(LOCALAPPDATA, 'Microsoft', 'WinGet', 'Links'),
   path.join(LOCALAPPDATA, 'Programs', 'Antigravity', 'bin'),
+  path.join(LOCALAPPDATA, 'Programs', 'antigravity'),
+  path.join(LOCALAPPDATA, 'Programs', 'antigravity', 'resources', 'bin'),
+  path.join(LOCALAPPDATA, 'Programs', 'Antigravity IDE', 'bin'),
   path.join(LOCALAPPDATA, 'Programs', 'Microsoft VS Code', 'bin'),
   path.join(LOCALAPPDATA, 'Programs', 'PowerShell', '7'),
+  path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Git', 'cmd'),
+  path.join(process.env.ProgramFiles || 'C:\\Program Files', 'GitHub CLI'),
+  path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Docker', 'Docker', 'resources', 'bin'),
 ];
 const PATH_MACRO = '${env:Path}';
 
@@ -134,34 +143,65 @@ function tomlSingleQuoted(value) {
 
 function parseCodexPath(file) {
   const text = readTextIfExists(file);
-  const re = /PATH\s*=\s*('([^']*(?:''[^']*)*)'|"((?:\\.|[^"\\])*)")/;
-  const m = text.match(re);
-  if (!m) return { text, pathValue: '', entries: [], hasPath: false, quote: "'" };
-  let pathValue;
-  let quote;
-  if (m[1].startsWith("'")) {
-    quote = "'";
-    pathValue = m[2].replace(/''/g, "'");
-  } else {
-    quote = '"';
-    pathValue = JSON.parse(`"${m[3]}"`);
-  }
-  return { text, pathValue, entries: splitPathValue(pathValue), hasPath: true, quote, match: m };
+  const section = findTomlSection(text, 'shell_environment_policy');
+  if (!section) return { text, pathValue: '', entries: [], hasPath: false, section: null };
+  const body = text.slice(section.headerEnd, section.end);
+  const setPath = findPathValueInBody(body, /(\bset\s*=\s*\{[^\n}]*\bPATH\s*=\s*)('([^']*(?:''[^']*)*)'|"((?:\\.|[^"\\])*)")/m);
+  const directPath = setPath || findPathValueInBody(body, /^(\s*PATH\s*=\s*)('([^']*(?:''[^']*)*)'|"((?:\\.|[^"\\])*)")/m);
+  if (!directPath) return { text, pathValue: '', entries: [], hasPath: false, section };
+  const pathValue = parseQuotedTomlString(directPath.raw);
+  return {
+    text,
+    pathValue,
+    entries: splitPathValue(pathValue),
+    hasPath: true,
+    section,
+    valueStart: section.headerEnd + directPath.valueStart,
+    valueEnd: section.headerEnd + directPath.valueEnd,
+  };
 }
 
 function updateCodexPath(parsed, file, newValue) {
   let text = parsed.text;
-  const replacement = parsed.quote === '"' ? `PATH = ${jsonStringLiteral(newValue)}` : `PATH = ${tomlSingleQuoted(newValue)}`;
+  const replacement = tomlSingleQuoted(newValue);
   if (parsed.hasPath) {
-    text = text.replace(/PATH\s*=\s*('([^']*(?:''[^']*)*)'|"((?:\\.|[^"\\])*)")/, replacement);
-  } else if (/^\s*\[shell_environment_policy]\s*$/m.test(text)) {
-    text = text.replace(/^\s*\[shell_environment_policy]\s*$/m, `[shell_environment_policy]\nset = { PATH = ${tomlSingleQuoted(newValue)} }`);
+    text = text.slice(0, parsed.valueStart) + replacement + text.slice(parsed.valueEnd);
+  } else if (parsed.section) {
+    text = text.slice(0, parsed.section.headerEnd) + `set = { PATH = ${replacement} }\n` + text.slice(parsed.section.headerEnd);
   } else {
     if (text && !text.endsWith('\n')) text += '\n';
-    text += `\n[shell_environment_policy]\nset = { PATH = ${tomlSingleQuoted(newValue)} }\n`;
+    text += `\n[shell_environment_policy]\nset = { PATH = ${replacement} }\n`;
   }
   ensureParent(file);
   fs.writeFileSync(file, text, 'utf8');
+}
+
+function findTomlSection(text, sectionName) {
+  const lines = text.split(/(?<=\n)/);
+  let offset = 0;
+  let found = null;
+  for (const line of lines) {
+    const header = line.match(/^\s*\[([^\]]+)]\s*$/);
+    if (header) {
+      if (found) return { ...found, end: offset };
+      if (header[1].trim() === sectionName) found = { start: offset, headerEnd: offset + line.length };
+    }
+    offset += line.length;
+  }
+  return found ? { ...found, end: text.length } : null;
+}
+
+function findPathValueInBody(body, re) {
+  const m = body.match(re);
+  if (!m) return null;
+  const raw = m[2];
+  const valueStart = m.index + m[1].length;
+  return { raw, valueStart, valueEnd: valueStart + raw.length };
+}
+
+function parseQuotedTomlString(raw) {
+  if (raw.startsWith("'")) return raw.slice(1, -1).replace(/''/g, "'");
+  return JSON.parse(raw);
 }
 
 function unescapeJsonStringContent(content) {
