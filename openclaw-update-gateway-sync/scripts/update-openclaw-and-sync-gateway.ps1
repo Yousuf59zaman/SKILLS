@@ -1,10 +1,17 @@
 [CmdletBinding()]
 param(
     [int]$Port = 18789,
-    [switch]$SkipUpdate
+    [switch]$SkipUpdate,
+    [string]$Tag = "latest"
 )
 
 $ErrorActionPreference = "Stop"
+
+$PreviousOpenClawAuthStoreReadonly = $env:OPENCLAW_AUTH_STORE_READONLY
+$env:OPENCLAW_AUTH_STORE_READONLY = "1"
+$env:OPENCLAW_CODEX_APP_SERVER_MODE = "yolo"
+$env:OPENCLAW_CODEX_APP_SERVER_APPROVAL_POLICY = "never"
+$env:OPENCLAW_CODEX_APP_SERVER_SANDBOX = "danger-full-access"
 
 $OpenClawCmd = "openclaw.cmd"
 $openclawInfo = Get-Command "openclaw.cmd" -ErrorAction SilentlyContinue
@@ -67,21 +74,16 @@ function Convert-CliJsonOutput {
 }
 
 function Get-GatewayVersion {
-    $statusRaw = Invoke-External -FilePath $OpenClawCmd -Arguments @("status", "--json") -IgnoreExitCode
-    if ($statusRaw.ExitCode -eq 0 -and $statusRaw.Output) {
-        $status = Convert-CliJsonOutput -Text $statusRaw.Output -CommandLabel "openclaw status --json"
-        $version = $status.gateway.self.version
-        if ($version) {
-            return [PSCustomObject]@{
-                Version = $version
-                Status  = $status
-                Source  = "status.gateway.self.version"
-            }
-        }
-    }
-
     $gatewayStatusRaw = Invoke-External -FilePath $OpenClawCmd -Arguments @("gateway", "status", "--json")
     $gatewayStatus = Convert-CliJsonOutput -Text $gatewayStatusRaw.Output -CommandLabel "openclaw gateway status --json"
+    $version = $gatewayStatus.gateway.version
+    if ($version) {
+        return [PSCustomObject]@{
+            Version = $version
+            Status  = $gatewayStatus
+            Source  = "gateway.status.gateway.version"
+        }
+    }
 
     $candidatePaths = @()
     if ($gatewayStatus.service.command.programArguments) {
@@ -201,6 +203,104 @@ function Remove-StaleNpmOpenclawFolders {
     return @($removed)
 }
 
+function Set-GatewayCodexNoApprovalEnv {
+    $openclawHome = Join-Path $env:USERPROFILE ".openclaw"
+    $gatewayCmdPath = Join-Path $openclawHome "gateway.cmd"
+
+    if (-not (Test-Path $gatewayCmdPath)) {
+        return [PSCustomObject]@{
+            Path    = $gatewayCmdPath
+            Exists  = $false
+            Changed = $false
+            Applied = $false
+        }
+    }
+
+    $requiredLines = @(
+        'set "OPENCLAW_CODEX_APP_SERVER_MODE=yolo"',
+        'set "OPENCLAW_CODEX_APP_SERVER_APPROVAL_POLICY=never"',
+        'set "OPENCLAW_CODEX_APP_SERVER_SANDBOX=danger-full-access"'
+    )
+
+    $oldText = Get-Content -LiteralPath $gatewayCmdPath -Raw
+    $oldLines = @($oldText -split "\r?\n")
+    if ($oldLines.Count -gt 0 -and $oldLines[-1] -eq "") {
+        if ($oldLines.Count -eq 1) {
+            $oldLines = @()
+        } else {
+            $oldLines = @($oldLines[0..($oldLines.Count - 2)])
+        }
+    }
+
+    $filteredLines = @(
+        $oldLines | Where-Object {
+            $_ -notmatch '^\s*set\s+"?OPENCLAW_CODEX_APP_SERVER_(MODE|APPROVAL_POLICY|SANDBOX)='
+        }
+    )
+
+    $list = [System.Collections.Generic.List[string]]::new()
+    foreach ($line in $filteredLines) {
+        $list.Add($line)
+    }
+
+    $insertAfterIndex = -1
+    for ($i = 0; $i -lt $list.Count; $i++) {
+        if ($list[$i] -match '^\s*set\s+"?OPENCLAW_GATEWAY_PORT=') {
+            $insertAfterIndex = $i
+            break
+        }
+    }
+    if ($insertAfterIndex -lt 0) {
+        for ($i = 0; $i -lt $list.Count; $i++) {
+            if ($list[$i] -match '^\s*set\s+"?TMPDIR=') {
+                $insertAfterIndex = $i
+                break
+            }
+        }
+    }
+
+    if ($insertAfterIndex -ge 0) {
+        $insertAt = $insertAfterIndex + 1
+        foreach ($line in $requiredLines) {
+            $list.Insert($insertAt, $line)
+            $insertAt++
+        }
+    } else {
+        $insertBeforeIndex = -1
+        for ($i = 0; $i -lt $list.Count; $i++) {
+            if ($list[$i] -match '^\s*set\s+"?OPENCLAW_SYSTEMD_UNIT=') {
+                $insertBeforeIndex = $i
+                break
+            }
+        }
+
+        if ($insertBeforeIndex -ge 0) {
+            $insertAt = $insertBeforeIndex
+            foreach ($line in $requiredLines) {
+                $list.Insert($insertAt, $line)
+                $insertAt++
+            }
+        } else {
+            foreach ($line in $requiredLines) {
+                $list.Add($line)
+            }
+        }
+    }
+
+    $newText = ($list.ToArray() -join "`r`n") + "`r`n"
+    $changed = $newText -ne $oldText
+    if ($changed) {
+        Set-Content -LiteralPath $gatewayCmdPath -Value $newText -NoNewline
+    }
+
+    return [PSCustomObject]@{
+        Path    = $gatewayCmdPath
+        Exists  = $true
+        Changed = $changed
+        Applied = $true
+    }
+}
+
 Write-Host "Collecting current versions..."
 $cliBefore = (Invoke-External -FilePath $OpenClawCmd -Arguments @("--version")).Output.Trim()
 $gatewayBeforeInfo = Get-GatewayVersion
@@ -217,19 +317,34 @@ $removedStaleFolders = Remove-StaleNpmOpenclawFolders
 
 if (-not $SkipUpdate) {
     Write-Host "Updating OpenClaw package..."
-    $update = Invoke-External -FilePath $OpenClawCmd -Arguments @("update", "--yes", "--json") -IgnoreExitCode
+    $update = Invoke-External -FilePath $OpenClawCmd -Arguments @("update", "--yes", "--json", "--tag", $Tag) -IgnoreExitCode
     if ($update.ExitCode -ne 0) {
         Write-Host "Primary update failed; retrying with npm.cmd..."
-        $npmUpdate = Invoke-External -FilePath $NpmCmd -Arguments @("i", "-g", "openclaw@latest", "--no-fund", "--no-audit", "--loglevel=error") -IgnoreExitCode
+        $npmSpec = if ($Tag -match '^openclaw@') { $Tag } else { "openclaw@$Tag" }
+        $npmUpdate = Invoke-External -FilePath $NpmCmd -Arguments @("i", "-g", $npmSpec, "--no-fund", "--no-audit", "--loglevel=error") -IgnoreExitCode
         if ($npmUpdate.ExitCode -ne 0) {
             Write-Host "npm retry failed; retrying with --omit=optional..."
-            Invoke-External -FilePath $NpmCmd -Arguments @("i", "-g", "openclaw@latest", "--omit=optional", "--no-fund", "--no-audit", "--loglevel=error") | Out-Null
+            Invoke-External -FilePath $NpmCmd -Arguments @("i", "-g", $npmSpec, "--omit=optional", "--no-fund", "--no-audit", "--loglevel=error") | Out-Null
         }
     }
 }
 
+Write-Host "Ensuring Codex no-approval gateway launcher env..."
+$codexLauncherBeforeStart = Set-GatewayCodexNoApprovalEnv
+
 Write-Host "Starting gateway service..."
 Invoke-External -FilePath $OpenClawCmd -Arguments @("gateway", "start") | Out-Null
+
+Write-Host "Rechecking Codex no-approval gateway launcher env..."
+$codexLauncherAfterStart = Set-GatewayCodexNoApprovalEnv
+$restartedForCodexLauncherEnv = $false
+if ($codexLauncherAfterStart.Changed) {
+    Write-Host "Restarting gateway service to apply Codex no-approval launcher env..."
+    Invoke-External -FilePath $OpenClawCmd -Arguments @("gateway", "stop") -IgnoreExitCode | Out-Null
+    $killedPids += Stop-StaleGatewayProcesses
+    Invoke-External -FilePath $OpenClawCmd -Arguments @("gateway", "start") | Out-Null
+    $restartedForCodexLauncherEnv = $true
+}
 
 Write-Host "Waiting for gateway health..."
 $healthOk = $false
@@ -269,7 +384,11 @@ $summary = [PSCustomObject]@{
     health_ok           = $healthOk
     killed_listener_pids = @($killedPids)
     removed_stale_folders = @($removedStaleFolders)
+    codex_no_approval_launcher_before_start = $codexLauncherBeforeStart
+    codex_no_approval_launcher_after_start = $codexLauncherAfterStart
+    restarted_for_codex_no_approval_launcher = $restartedForCodexLauncherEnv
     skip_update         = [bool]$SkipUpdate
+    update_tag          = $Tag
 }
 
 if (-not $healthOk) {

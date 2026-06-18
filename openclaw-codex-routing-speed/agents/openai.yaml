@@ -1,0 +1,7 @@
+interface:
+  display_name: "OpenClaw Codex Routing Speed"
+  short_description: "Repair Codex OAuth routing and speed while preserving xhigh thinking and fast mode off"
+  default_prompt: "Use $openclaw-codex-routing-speed to diagnose OpenClaw Codex OAuth routing and chat speed after an update, preserving xhigh thinking and keeping fast mode off unless explicitly approved otherwise."
+
+policy:
+  allow_implicit_invocation: true

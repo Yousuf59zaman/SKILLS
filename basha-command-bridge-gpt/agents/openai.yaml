@@ -1,0 +1,4 @@
+interface:
+  display_name: "Basha Command Bridge GPT"
+  short_description: "Build a private ChatGPT PC command bridge"
+  default_prompt: "Use $basha-command-bridge-gpt to set up a private ChatGPT Custom GPT that controls this Windows PC through a local command bridge."

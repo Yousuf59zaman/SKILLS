@@ -1,4 +1,4 @@
 interface:
   display_name: "OpenClaw Update + Sync"
-  short_description: "Update OpenClaw and force gateway runtime sync"
-  default_prompt: "Update OpenClaw to the latest version, restart gateway cleanly, clear stale listener processes, and verify the live gateway version."
+  short_description: "Update OpenClaw, sync gateway, preserve launcher env, and triage bot routing safely"
+  default_prompt: "Update OpenClaw to the latest version, restart gateway cleanly, clear stale listener processes, preserve the Codex no-approval gateway launcher env, verify CLI/gateway health without touching auth by default, and require exact approval before any post-update auth/routing repair."

@@ -85,11 +85,13 @@ Use this skill for OrangeBD project tasks. Apply only the rules that fit the cur
 
 - Use Atomic Design only when it fits the existing codebase and reduces real complexity; existing project architecture always wins.
 - Existing project architecture is first priority. Before creating new files or components, check similar features/pages/API calls/routes/controllers and reuse or mirror the existing pattern.
+- For file-based frontend routing, distinguish Nuxt from modern Next.js. Nuxt routes live in `pages/` by default. In new Next.js work, prefer the App Router `app/` structure with `page.tsx`, `layout.tsx`, and route groups; only follow the older `pages/` Pages Router when the existing project already uses it or the task explicitly requires it.
 - Structure pages by major sections when the section is substantial or reused. Subsections can also become components when they reduce complexity.
 - Tiny one-off elements like a single button/input do not need separate components unless the project already has reusable components for them.
 - For reusable form controls, prefer project-level shared components over feature-only shared folders when the component is intended to be used across pages/modules. Feature folders can wrap shared fields with feature-specific labels or options.
 - Before adding a new shared component/helper, scan for existing shared field, icon, table, and chart utilities; after migration, remove dead wrappers introduced or made obsolete by the change.
 - If the same pure helper/function is used in two or more places, extract it to the project's existing `utils` folder/pattern and import it from there. Keep the util generic, named clearly, and free of feature-specific hardcoded data.
+- For API helper organization, scale the folder structure with project size. In small/MVP projects, one compact file such as `src/lib/api.ts` is acceptable when there are only a few endpoints. In scalable projects, avoid one large API file; split by concern, for example `src/lib/api/client.ts` for the base fetch/Axios client and feature files such as `auth.ts`, `bookings.ts`, `services.ts`, plus `index.ts` for exports. For larger data flows, pair API functions with framework-appropriate hooks/composables: React/Next uses `hooks/useFeature.ts`, while Vue/Nuxt uses `composables/useFeature.ts`.
 - For unfinished API-backed Inertia/workflow pages, keep Laravel controllers thin: render the page and pass only required route params or real server data. Avoid using controllers as temporary frontend data stores.
 - Before adding local formatters, status badge logic, currency helpers, or repeated display helpers, scan existing `utils` and shared workflow components. Reuse existing helpers such as shared currency formatting or status badge components when available.
 - In monolith apps, keep backend and frontend feature structure and names aligned enough that route/controller/page/component relationships are easy to follow.
@@ -106,6 +108,7 @@ Use this skill for OrangeBD project tasks. Apply only the rules that fit the cur
 - For production table/list features, `sort`, `search`, `filter`, `pagination`, `per_page`, and rows-per-page limits must be treated as backend API responsibilities. Frontend-only handling can be used for temporary UI/demo behavior, but it is not final for scalable data. Confirm backend request keys and response pagination metadata before marking the feature complete.
 - Handle `jwplayer` or `hlsplayer` requirements with the project's established media-player approach when those features are involved.
 - For environment variables, use server-side env access in server files such as `index.js` or `config.js`; use a separate safe browser config approach for browser entry files such as `main.js`.
+- In split frontend/backend projects with Docker, keep env ownership separate: root `.env` is for Docker infrastructure such as database container settings, backend `.env` is for backend runtime secrets/config such as database URL and auth secrets, and frontend `.env.local` is for frontend-safe public config such as API base URLs.
 
 ## Documentation and explanation tasks
 
