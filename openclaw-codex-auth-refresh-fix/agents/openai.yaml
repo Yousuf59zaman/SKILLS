@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenClaw Codex Auth Refresh Fix"
+  short_description: "Repair OpenClaw Codex OAuth refresh timeout routing drift."
+  default_prompt: "Repair OpenClaw openai-codex auth refresh timeout, stale routing, stale session pins, and gateway health using the documented safe workflow."

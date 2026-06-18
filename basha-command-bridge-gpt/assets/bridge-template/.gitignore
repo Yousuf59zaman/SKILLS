@@ -1,0 +1,7 @@
+.venv/
+.env
+.bridge.pid
+logs/
+tools/
+__pycache__/
+*.pyc

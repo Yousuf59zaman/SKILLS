@@ -89,6 +89,7 @@ function pathEntries() {
   const raw = [
     process.env.Path || process.env.PATH || '',
     path.join(APPDATA, 'npm'),
+    path.join(HOME, 'bin'),
     path.join(LOCALAPPDATA, 'Microsoft', 'WinGet', 'Links'),
     USER_BIN,
     path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Git', 'cmd'),
