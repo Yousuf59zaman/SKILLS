@@ -1,9 +1,9 @@
 # Local Skill Catalog
 
-Generated: 2026-06-16 07:27:55Z
+Generated: 2026-06-28 16:18:00Z
 Roots:
-- `C:\Users\This pc\.codex\skills`
-- `C:\Users\This pc\.codex\plugins\cache`
+- `C:\Users\User\.codex\skills`
+- `C:\Users\User\.codex\plugins\cache`
 
 Use this catalog for routing only. Always read a selected skill before following it.
 
@@ -20,7 +20,7 @@ Use this catalog for routing only. Always read a selected skill before following
 - `orangebd-workflow` (`orangebd-workflow`): Apply OrangeBD project workflow rules to coding, frontend UI, shared reusable field/icon components, utils extraction, Laravel/Vue/Nuxt/API integration, documentation, topic-wise complex-part explanations, review, and testing tasks. Use when working on OrangeBD projects or when the user asks to follow OrangeBD, boss, office, Figma, design, shared fields, reusable components, icons, duplicate functions, utils, hydration, pagination, complex part explanation, or project delivery rules.
 - `pdf` (`pdf`): Use when tasks involve reading, creating, or reviewing PDF files where rendering and layout matter; prefer visual checks by rendering pages (Poppler) and use Python tools such as `reportlab`, `pdfplumber`, and `pypdf` for generation and extraction.
 - `prompt-book` (`prompt-book`): Store and reuse comparison-study prompts. Use when the user wants to study similar topics together, compare related topics, build a common syllabus, or ask for differences between frameworks, tools, or concepts such as Vue and React.
-- `skill-manager` (`skill-manager`): Route user requests through installed local Codex skills before acting. Use for broad task triage, automatic skill selection, deciding whether any skill in C:\Users\This pc\.codex\skills can make a task safer or better, refreshing the local skill catalog, auditing skill fit, or choosing not to use a skill when no high-confidence match exists.
+- `skill-manager` (`skill-manager`): Route user requests through installed local Codex skills before acting. Use for broad task triage, automatic skill selection, deciding whether any skill in C:\Users\User\.codex\skills can make a task safer or better, refreshing the local skill catalog, auditing skill fit, or choosing not to use a skill when no high-confidence match exists.
 - `vue-data-debugger` (`vue-data-debugger`): Diagnose Vue and Nuxt data-flow bugs by tracing refs, reactive state, computed values, props, stores, route params, API responses, transforms, and template bindings. Use when asked to debug missing or wrong UI data, add a debug view, inspect v-for cards, map API fields to template output, investigate hydration or client/server mismatches, or explain how data reaches a Vue component.
 
 ## System Skills

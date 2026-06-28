@@ -1,9 +1,11 @@
 # MCP/CLI Tool Catalog
 
-Generated: 2026-06-16T07:28:17.704Z
-Codex config: `C:\Users\This pc\.codex\config.toml`
+Generated: 2026-06-28T16:18:00+06:00
+Codex config: `C:\Users\User\.codex\config.toml`
 
 Use this catalog for routing only. Prefer read-only inspection before write actions.
+
+Codex Desktop / Relay AI rule: Browser, Chrome, and node_repl are deferred plugin tools in modern Codex sessions. Use `tool_search` first to expose the callable tool; do not rely on `list_mcp_resources` for these and do not report that browser control is unavailable until `tool_search` has been attempted.
 
 ## MCP Tools
 
@@ -29,8 +31,8 @@ Use this catalog for routing only. Prefer read-only inspection before write acti
   - Use: Inspect SQL databases through MCP, configured safely for local SQLite by default.
   - Safe first: Read schema/list tables/select only.
 - **ok** node_repl MCP (mcp: `node_repl`)
-  - Use: Configured MCP server named "node_repl". Inspect its available tools/resources before using it.
-  - Safe first: List/read/status operations first; avoid write actions unless explicitly requested.
+  - Use: Browser/Chrome automation helper and JavaScript execution kernel for Codex plugin sessions. Discover the callable `js` tool via `tool_search` before claiming it is missing.
+  - Safe first: inspect current page/session state before clicking/typing; avoid write actions unless explicitly requested.
 
 ## CLI Tools
 

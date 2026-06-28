@@ -11,6 +11,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -331,6 +332,9 @@ class SearchFilesRequest(BaseModel):
     text: str | None = None
     includeHidden: bool = False
     maxResults: int = Field(200, ge=1, le=2000)
+    maxChecked: int = Field(20_000, ge=1, le=500_000)
+    timeoutSec: float = Field(20.0, ge=1.0, le=60.0)
+    maxFileBytes: int = Field(500_000, ge=1_000, le=5_000_000)
 
 
 class TextReplacement(BaseModel):
@@ -386,6 +390,59 @@ def command_response(job: JobRecord) -> CommandStatusResponse:
         stderrTruncated=job.stderrTruncated,
         error=job.error,
     )
+
+
+def file_search_response(request: SearchFilesRequest, root: Path) -> dict[str, Any]:
+    matches = []
+    checked = 0
+    timed_out = False
+    hit_check_limit = False
+    deadline = time.monotonic() + request.timeoutSec
+    needle = request.text.lower() if request.text else None
+    for path in root.rglob(request.pattern):
+        if time.monotonic() >= deadline:
+            timed_out = True
+            break
+        if checked >= request.maxChecked:
+            hit_check_limit = True
+            break
+        checked += 1
+        try:
+            relative = path.relative_to(root)
+        except ValueError:
+            continue
+        if not request.includeHidden and is_hidden_path(relative):
+            continue
+        if not fnmatch.fnmatch(path.name, request.pattern):
+            continue
+        item = path_info(path)
+        if needle and path.is_file():
+            try:
+                with path.open("rb") as handle:
+                    data = handle.read(request.maxFileBytes + 1)
+                sample = data[: request.maxFileBytes].decode("utf-8", errors="replace")
+            except Exception:
+                continue
+            index = sample.lower().find(needle)
+            if index < 0:
+                continue
+            start = max(0, index - 80)
+            end = min(len(sample), index + len(request.text or "") + 80)
+            item["matchPreview"] = sample[start:end]
+            item["contentTruncated"] = len(data) > request.maxFileBytes
+        elif needle:
+            continue
+        matches.append(item)
+        if len(matches) >= request.maxResults:
+            break
+    return {
+        "root": str(root),
+        "matches": matches,
+        "checked": checked,
+        "truncated": len(matches) >= request.maxResults,
+        "timedOut": timed_out,
+        "hitCheckLimit": hit_check_limit,
+    }
 
 
 async def read_stream(reader: asyncio.StreamReader, buffer: bytearray, stream_name: str, job: JobRecord) -> None:
@@ -724,33 +781,7 @@ async def search_files(request: SearchFilesRequest, _: None = Security(require_a
         raise HTTPException(status_code=404, detail=f"Root does not exist: {root}")
     if not root.is_dir():
         raise HTTPException(status_code=400, detail=f"Root is not a directory: {root}")
-    matches = []
-    checked = 0
-    for path in root.rglob(request.pattern):
-        checked += 1
-        relative = path.relative_to(root)
-        if not request.includeHidden and is_hidden_path(relative):
-            continue
-        if not fnmatch.fnmatch(path.name, request.pattern):
-            continue
-        item = path_info(path)
-        if request.text and path.is_file():
-            try:
-                sample = path.read_text(encoding="utf-8", errors="replace")
-            except Exception:
-                continue
-            index = sample.lower().find(request.text.lower())
-            if index < 0:
-                continue
-            start = max(0, index - 80)
-            end = min(len(sample), index + len(request.text) + 80)
-            item["matchPreview"] = sample[start:end]
-        elif request.text:
-            continue
-        matches.append(item)
-        if len(matches) >= request.maxResults:
-            break
-    return {"root": str(root), "matches": matches, "checked": checked, "truncated": len(matches) >= request.maxResults}
+    return await asyncio.to_thread(file_search_response, request, root)
 
 
 @app.post("/files/replace")

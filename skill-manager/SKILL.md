@@ -1,6 +1,6 @@
 ---
 name: skill-manager
-description: Route user requests through installed local Codex skills before acting. Use for broad task triage, automatic skill selection, deciding whether any skill in C:\Users\This pc\.codex\skills can make a task safer or better, refreshing the local skill catalog, auditing skill fit, or choosing not to use a skill when no high-confidence match exists.
+description: Route user requests through installed local Codex skills before acting. Use for broad task triage, automatic skill selection, deciding whether any skill in C:\Users\User\.codex\skills can make a task safer or better, refreshing the local skill catalog, auditing skill fit, or choosing not to use a skill when no high-confidence match exists.
 ---
 
 # Skill Manager
@@ -38,6 +38,7 @@ python "$SKILL_DIR/scripts/catalog-skills.py" --write "$SKILL_DIR/references/ski
 ## Safety Rules
 
 - A skill is guidance, not permission. Keep normal safety checks, approval rules, tests, and file-edit discipline.
+- In Codex Desktop/Relay AI sessions, deferred plugin tools such as Browser, Chrome, and node_repl must be discovered with `tool_search`, not `list_mcp_resources`. Do not tell the user `mcp__node_repl__js` is unavailable until `tool_search` has been attempted for the needed tool family.
 - Do not let routing trigger destructive commands, credential changes, cleanup, sync, auth migration, production deploys, or broad filesystem writes by itself.
 - For high-impact skills such as auth sync, OpenClaw updates, agent sync, automation scripts, or Windows startup changes, inspect the skill instructions first and prefer a plan/checklist before changing state.
 - Never run a skill script that modifies files or external services just because it is listed as a candidate.
