@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex Multi Auth Refresh Guard"
+  short_description: "Repair codex-multi-auth refresh token drift"
+  default_prompt: "Use $codex-multi-auth-refresh-guard to reapply and verify the auth.json import-before-switch fix for codex-multi-auth."

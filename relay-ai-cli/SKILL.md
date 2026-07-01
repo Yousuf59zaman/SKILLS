@@ -401,8 +401,8 @@ RELATED DOCS
 CURRENT LOCAL STATE (from disk — no network)
 ================================================================================
 
-Config:     C:\Users\User\.relay-ai\config.json
-Providers:  C:\Users\User\.relay-ai\providers.json
+Config:     C:\Users\This pc\.relay-ai\config.json
+Providers:  C:\Users\This pc\.relay-ai\providers.json
 
 Saved preferences:
   (none — run an interactive launch first or pass --provider / --model)
