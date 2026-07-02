@@ -14,6 +14,11 @@ $serviceCmd = Join-Path $openClawHome 'gateway-service.cmd'
 $monitorPs1 = Join-Path $openClawHome 'gateway-manual-monitor.ps1'
 $supervisorPs1 = Join-Path $openClawHome 'gateway-supervisor.ps1'
 $autostartPs1 = Join-Path $openClawHome 'gateway-autostart.ps1'
+$liveLogPs1 = Join-Path $openClawHome 'gateway-live-log.ps1'
+$liveLogCmd = Join-Path $openClawHome 'gateway-live-log.cmd'
+$logDir = Join-Path $openClawHome 'logs'
+$gatewayOutLog = Join-Path $logDir 'gateway-live.out.log'
+$gatewayErrLog = Join-Path $logDir 'gateway-live.err.log'
 $openclawCmd = Join-Path $env:APPDATA 'npm\openclaw.cmd'
 $backupRoot = Join-Path $workspaceDir 'backups'
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -58,10 +63,11 @@ if (-not (Test-Path -LiteralPath $openClawHome)) {
 }
 New-Item -ItemType Directory -Force -Path $backupRoot | Out-Null
 
-foreach ($path in @($gatewayCmd, $manualCmd, $serviceCmd, $monitorPs1, $supervisorPs1, $autostartPs1)) {
+foreach ($path in @($gatewayCmd, $manualCmd, $serviceCmd, $monitorPs1, $supervisorPs1, $autostartPs1, $liveLogPs1, $liveLogCmd)) {
   Backup-IfExists -Path $path
 }
 Write-Status "Backup saved: $backupDir"
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
 $monitorContent = @'
 $ErrorActionPreference = 'Continue'
@@ -103,6 +109,71 @@ while ($true) {
 '@
 Set-Content -LiteralPath $monitorPs1 -Value $monitorContent -Encoding ASCII
 
+$liveLogContent = @'
+$ErrorActionPreference = 'Continue'
+$openClawHome = Join-Path $env:USERPROFILE '.openclaw'
+$logDir = Join-Path $openClawHome 'logs'
+$files = @(
+  @{ Path = (Join-Path $logDir 'gateway-supervisor.log'); Label = 'supervisor'; Color = 'Cyan' },
+  @{ Path = (Join-Path $logDir 'gateway-live.out.log'); Label = 'gateway'; Color = 'Green' },
+  @{ Path = (Join-Path $logDir 'gateway-live.err.log'); Label = 'gateway-err'; Color = 'Red' }
+)
+$positions = @{}
+
+function Read-NewText {
+  param([string]$Path)
+  if (-not (Test-Path -LiteralPath $Path)) { return '' }
+  try {
+    $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+    try {
+      $pos = 0L
+      if ($positions.ContainsKey($Path)) { $pos = [int64]$positions[$Path] }
+      if ($pos -gt $fs.Length) { $pos = 0L }
+      $fs.Seek($pos, [System.IO.SeekOrigin]::Begin) | Out-Null
+      $reader = [System.IO.StreamReader]::new($fs, [System.Text.Encoding]::UTF8, $true, 4096, $true)
+      try { $text = $reader.ReadToEnd() } finally { $reader.Dispose() }
+      $positions[$Path] = $fs.Position
+      return $text
+    } finally { $fs.Dispose() }
+  } catch {
+    return ''
+  }
+}
+
+Clear-Host
+Write-Host 'OpenClaw Gateway LIVE LOG terminal' -ForegroundColor Yellow
+Write-Host 'Eta real gateway/supervisor log tail kore. Close korle gateway bondho hobe na.' -ForegroundColor DarkGray
+Write-Host 'Ctrl+C or window X diye sudhu ei log terminal close korte parba.' -ForegroundColor DarkGray
+Write-Host ''
+
+foreach ($f in $files) {
+  if (Test-Path -LiteralPath $f.Path) {
+    try { $positions[$f.Path] = [Math]::Max(0, (Get-Item -LiteralPath $f.Path).Length - 16000) } catch { $positions[$f.Path] = 0 }
+  }
+}
+
+while ($true) {
+  foreach ($f in $files) {
+    $text = Read-NewText -Path $f.Path
+    if (-not $text) { continue }
+    $lines = $text -split "`r?`n"
+    foreach ($line in $lines) {
+      if ([string]::IsNullOrWhiteSpace($line)) { continue }
+      Write-Host ('[{0}] {1}' -f $f.Label, $line) -ForegroundColor $f.Color
+    }
+  }
+  Start-Sleep -Seconds 2
+}
+'@
+Set-Content -LiteralPath $liveLogPs1 -Value $liveLogContent -Encoding UTF8
+
+$liveLogCmdContent = @'
+@echo off
+rem Visible OpenClaw real gateway live-log terminal. Closing this window does not stop gateway.
+C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%USERPROFILE%\.openclaw\gateway-live-log.ps1"
+'@
+Set-Content -LiteralPath $liveLogCmd -Value $liveLogCmdContent -Encoding ASCII
+
 $gatewayContent = @'
 @echo off
 rem OpenClaw Gateway supervised launcher.
@@ -142,7 +213,8 @@ Set-Content -LiteralPath $gatewayCmd -Value $gatewayContent -Encoding ASCII
 
 $manualContent = @'
 @echo off
-rem Visible/manual OpenClaw Gateway launcher. This keeps a live monitor open if gateway is already running.
+rem Visible/manual OpenClaw Gateway launcher. Starts a real live-log terminal plus a status monitor if gateway is already running.
+if not "%OPENCLAW_GATEWAY_NO_LIVE_LOG%"=="1" start "OpenClaw Gateway Live Log" "%USERPROFILE%\.openclaw\gateway-live-log.cmd"
 set "OPENCLAW_GATEWAY_NO_MONITOR="
 call "%USERPROFILE%\.openclaw\gateway.cmd"
 '@
@@ -185,6 +257,24 @@ if (Test-Path -LiteralPath $supervisorPs1) {
       Set-Content -LiteralPath $supervisorPs1 -Value $lines -Encoding UTF8
     }
   }
+}
+
+if (Test-Path -LiteralPath $supervisorPs1) {
+  $supervisorText = Get-Content -LiteralPath $supervisorPs1 -Raw
+  if ($supervisorText -notmatch '\$gatewayOutLog') {
+    $supervisorText = $supervisorText.Replace(
+      '$logFile = Join-Path $logDir ''gateway-supervisor.log''',
+      '$logFile = Join-Path $logDir ''gateway-supervisor.log''' + "`r`n" +
+      '$gatewayOutLog = Join-Path $logDir ''gateway-live.out.log''' + "`r`n" +
+      '$gatewayErrLog = Join-Path $logDir ''gateway-live.err.log'''
+    )
+  }
+  $plainStart = '$process = Start-Process -FilePath $nodeExe -ArgumentList @($openClawIndex, ''gateway'', ''--port'', [string]$gatewayPort) -WorkingDirectory $openClawHome -PassThru'
+  $redirectStart = '$process = Start-Process -FilePath $nodeExe -ArgumentList @($openClawIndex, ''gateway'', ''--port'', [string]$gatewayPort) -WorkingDirectory $openClawHome -RedirectStandardOutput $gatewayOutLog -RedirectStandardError $gatewayErrLog -PassThru'
+  if ($supervisorText.Contains($plainStart)) {
+    $supervisorText = $supervisorText.Replace($plainStart, $redirectStart)
+  }
+  Set-Content -LiteralPath $supervisorPs1 -Value $supervisorText -Encoding UTF8
 }
 
 if (Test-Path -LiteralPath $autostartPs1) {
