@@ -1,6 +1,6 @@
 ---
 name: orangebd-project
-description: Strict OrangeBD project workflow and common pattern guardrails. Use whenever working on OrangeBD projects or related codebases such as CPIS, Accessimate, HeyHomex, HeyHomex2, Nuxt, Vue, Laravel, Inertia, admin panels, dashboards, reports, API integration, auth, pagination, hydration, reusable fields/components, Figma-to-code, QA, project documentation, or future projects that should follow OrangeBD common frontend/backend conventions.
+description: Strict OrangeBD project workflow and framework-specific pattern guardrails. Use whenever working on OrangeBD projects or related codebases such as CPIS, Accessimate, HeyHomex, React, Next.js App Router, Nuxt, Vue, Laravel, Inertia, admin panels, dashboards, reports, API integration, auth, route groups, Server/Client Components, pagination, hydration, reusable fields/components, Figma-to-code, QA, project documentation, or future projects that should follow OrangeBD conventions.
 ---
 
 # OrangeBD Project
@@ -19,6 +19,7 @@ This skill is mandatory for OrangeBD project work. Treat it as the strict operat
 8. For Nuxt work, guard browser-only logic with `import.meta.client`, `onMounted`, `.client` plugins, or `ClientOnly`.
 9. Never patch frontend around backend stack traces, broken SQL/server errors, missing IDs, all-zero data, repeated `Unknown`, or missing pagination meta. Report the exact backend/API issue.
 10. Verify with the narrowest useful build/typecheck/test/browser check. If a check cannot run, say exactly why.
+11. For React/Next.js, preserve Server Components by default, add `"use client"` only at interactive boundaries, and keep private environment/session logic out of the client module graph.
 
 ## Mandatory First Pass
 
@@ -41,23 +42,43 @@ Prefer `rg`/`rg --files` for search. Use parallel reads where useful.
 Load only the references needed for the task:
 
 - `references/common-patterns.md`: architecture, folders, naming, UI structure, small conventions, component rules.
+- `references/react-nextjs-patterns.md`: dedicated React/Next.js App Router architecture, route groups, Server/Client Components, role layouts, auth/session, API wrappers, env separation, detailed request flows, testing, and new-project build order.
 - `references/nuxt-vue-future-patterns.md`: future Nuxt/Vue/Inertia app structure, feature flows, admin/citizen/workflow patterns, and source references from Accessimate, HeyHomex, and CPIS `dev` branches.
 - `references/auth-api-state.md`: auth composables, middleware, cookies/tokens, API wrappers, SSR/hydration, server API.
 - `references/admin-crud-pagination.md`: admin list pages, AddEdit modal, permissions, delete/restore, pagination, validation.
 - `references/qa-delivery.md`: test/build/browser checks, final response, review and documentation rules.
 
-For a new or broad OrangeBD frontend task, read `common-patterns.md`, `nuxt-vue-future-patterns.md`, `auth-api-state.md`, `admin-crud-pagination.md`, and `qa-delivery.md` before planning or editing.
+For a React/Next.js task, read `react-nextjs-patterns.md` and `qa-delivery.md`, plus `admin-crud-pagination.md` when CRUD/list behavior is involved. Do not load Nuxt/Vue references unless comparing frameworks or migrating from Nuxt/Vue.
+
+For a Nuxt/Vue/Inertia task, read `common-patterns.md`, `nuxt-vue-future-patterns.md`, `auth-api-state.md`, `admin-crud-pagination.md`, and `qa-delivery.md` as relevant. Do not treat React/Next.js route, provider, or Server Component patterns as Nuxt conventions.
 
 ## Project Family Defaults
 
 Use the matching family:
 
 ```text
+React/Next.js App Router apps: Accessimate Next pattern in react-nextjs-patterns.md
 Nuxt apps: Accessimate / HeyHomex pattern
 Nuxt 4 app-directory apps: HeyHomex pattern
 Nuxt 3 root-directory apps: Accessimate pattern
 Laravel + Inertia + Vue apps: CPIS pattern
 Standalone Vue + Vite apps: inspect local router/store/components first; do not assume CPIS patterns unless the app is Inertia-backed
+```
+
+React/Next.js App Router default folders:
+
+```text
+src/app/             # route entrypoints, route groups, route handlers, metadata/loading/error files
+src/layouts/         # real role/public shell components
+src/components/      # reusable and role-specific UI
+src/hooks/           # client-side React state/actions
+src/lib/api/         # request layer and role API wrappers
+src/lib/auth/        # auth/session/cookie constants and helpers
+src/providers/       # React provider composition
+src/integrations/    # Firebase/Stripe/third-party SDK setup
+src/utils/           # pure helpers
+src/proxy.ts         # optional Next request-time optimistic redirect boundary
+public/              # static assets
 ```
 
 Nuxt default folders:
@@ -120,7 +141,7 @@ Backend owns scalable list operations.
 Before wiring data:
 
 ```text
-1. Find existing fetch wrapper: $fetchAdmin, $fetchCitizen, $fetchCMS, axios service, or local $fetch.
+1. Find the existing fetch wrapper: Next `adminApi`/`citizenApi`/`cmsApi` through `fetchAdmin.ts`/`fetchCitizen.ts`/`fetchCMS.ts`; Nuxt `$fetchAdmin`/`$fetchCitizen`/`$fetchCMS`; or the inspected project equivalent.
 2. Confirm base URL/env key.
 3. Confirm token/cookie/header behavior.
 4. Confirm endpoint, method, request body, and response shape.

@@ -1,4 +1,4 @@
 interface:
   display_name: "OrangeBD Project"
-  short_description: "Strict OrangeBD workflow plus future Nuxt/Vue/Inertia frontend patterns."
-  default_prompt: "Use the OrangeBD project workflow and Nuxt/Vue/Inertia patterns before working on this project."
+  short_description: "OrangeBD React/Next and Nuxt/Vue project patterns."
+  default_prompt: "Use $orangebd-project to inspect this codebase and apply the matching React/Next.js or Nuxt/Vue OrangeBD pattern."
