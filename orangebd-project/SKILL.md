@@ -20,6 +20,7 @@ This skill is mandatory for OrangeBD project work. Treat it as the strict operat
 9. Never patch frontend around backend stack traces, broken SQL/server errors, missing IDs, all-zero data, repeated `Unknown`, or missing pagination meta. Report the exact backend/API issue.
 10. Verify with the narrowest useful build/typecheck/test/browser check. If a check cannot run, say exactly why.
 11. For React/Next.js, preserve Server Components by default, add `"use client"` only at interactive boundaries, and keep private environment/session logic out of the client module graph.
+12. For the Accessimate React/Next.js pattern, keep guest/admin/citizen access checks filewise in their route-group `layout.tsx` files. Do not introduce centralized `src/proxy.ts` or `middleware.ts` unless the user explicitly changes this architecture.
 
 ## Mandatory First Pass
 
@@ -77,7 +78,6 @@ src/lib/auth/        # auth/session/cookie constants and helpers
 src/providers/       # React provider composition
 src/integrations/    # Firebase/Stripe/third-party SDK setup
 src/utils/           # pure helpers
-src/proxy.ts         # optional Next request-time optimistic redirect boundary
 public/              # static assets
 ```
 
@@ -132,7 +132,7 @@ Layout owns shell.
 Component owns reusable UI.
 Composable owns reusable reactive state/actions.
 Utils own pure helpers and API/fetch wrappers.
-Middleware owns route protection.
+Route guard owns route protection: Next role-group layout for the Accessimate pattern; Nuxt middleware for Nuxt apps.
 Backend owns scalable list operations.
 ```
 

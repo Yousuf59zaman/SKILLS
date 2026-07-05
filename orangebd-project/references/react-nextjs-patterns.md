@@ -17,7 +17,7 @@ Use this reference for OrangeBD React and Next.js projects. Keep it separate fro
 11. Providers And Third-Party Integrations
 12. Component, Hook, State, And Type Rules
 13. Detailed Admin And Citizen Flows
-14. Route Handlers, Server Actions, And Proxy
+14. Route Handlers, Server Actions, And Filewise Guards
 15. Loading, Error, Validation, And Navigation
 16. UI And Asset Rules
 17. Testing And QA
@@ -58,7 +58,6 @@ Cross-check version-sensitive behavior against the installed Next.js version and
 ```text
 https://nextjs.org/docs/app/getting-started/project-structure
 https://nextjs.org/docs/app/getting-started/server-and-client-components
-https://nextjs.org/docs/app/api-reference/file-conventions/proxy
 https://nextjs.org/docs/app/guides/environment-variables
 https://nextjs.org/docs/app/guides/authentication
 ```
@@ -69,7 +68,7 @@ Use this ownership model:
 
 ```text
 src/app          = framework routes, route layouts, metadata, loading/error UI, route handlers
-src/proxy.ts     = optional request-time optimistic redirects and coarse route prefiltering
+src/app/(role)/layout.tsx = filewise role access and redirect guard
 src/layouts      = real role/public shell UI
 src/components   = reusable presentation and interaction components
 src/hooks        = reusable client-side React state and actions
@@ -157,8 +156,6 @@ project-root/
       error.tsx
       not-found.tsx
 
-    proxy.ts
-
     layouts/
       DefaultLayout.tsx
       GuestLayout.tsx
@@ -224,7 +221,7 @@ project-root/
       auth.ts
 ```
 
-Do not create every optional file on day one. Add `proxy.ts`, `integrations`, `types`, route handlers, feature folders, and shared abstractions when actual requirements justify them.
+Do not create every optional file on day one. Add `integrations`, `types`, route handlers, feature folders, and shared abstractions when actual requirements justify them.
 
 ## Folder Ownership Rules
 
@@ -337,18 +334,17 @@ Use this exact conceptual order:
 
 ```text
 browser request
--> src/proxy.ts, if configured and matched
 -> Next route match
 -> src/app/layout.tsx root Server Component
 -> src/providers/AppProviders.tsx client provider boundary
--> matching route-group layout.tsx
+-> matching route-group layout.tsx filewise role check
 -> src/layouts/* real shell
 -> page.tsx
 -> child components
 -> interactive Client Components hydrate
 ```
 
-`proxy.ts` runs before render. React providers run during render. Never describe a provider as request middleware.
+Do not insert a centralized Proxy/middleware step into this OrangeBD Next pattern. Each route-group server layout owns its matching role check, while React providers run inside the render tree.
 
 The actual Accessimate baseline maps routes as follows:
 
@@ -474,7 +470,7 @@ When the frontend must call an external backend directly with a bearer token, de
    -> return only required DTO data to the browser
 ```
 
-Do not treat Proxy or route layouts as the only authorization layer. Use a server-only session/DAL helper for secure checks near data.
+Do not treat route layouts as the only authorization layer. Use a server-only session/DAL helper for secure checks near data.
 
 ## API Client Architecture
 
@@ -739,23 +735,23 @@ read token/session
 
 Decide whether a backend logout failure should be logged or shown, but do not leave the browser stuck in an apparently authenticated state with an invalid session.
 
-## Route Handlers, Server Actions, And Proxy
+## Route Handlers, Server Actions, And Filewise Guards
 
 Use `src/app/api/**/route.ts` for server endpoints such as CMS machine login, webhooks, secret-bearing backend calls, or a frontend BFF boundary.
 
-Use Server Actions for mutations tightly coupled to a rendered form when they fit the existing architecture. Re-check authorization inside every action; Proxy coverage is not sufficient.
+Use Server Actions for mutations tightly coupled to a rendered form when they fit the existing architecture. Re-check authorization inside every action; route-layout coverage is not sufficient.
 
-Use `src/proxy.ts` only when request-time redirects provide real value:
+Keep route checks filewise in the matching route-group layout:
 
 ```text
-coarse guest/admin/citizen redirects
-cookie-based optimistic checks
-redirects/rewrites before route render
+src/app/(guest)/layout.tsx   -> guest-only admin/citizen redirect decisions
+src/app/(admin)/layout.tsx   -> admin cookie/session presence and admin-login redirect
+src/app/(citizen)/layout.tsx -> citizen cookie/session presence and public/login redirect
 ```
 
-Keep Proxy fast. Read only lightweight cookie/session data; do not perform slow database or current-user fetches there. Use a static `matcher` and exclude assets/API paths when appropriate.
+Do not create `src/proxy.ts`, `middleware.ts`, or another centralized route guard for this pattern unless the user explicitly changes the architecture. Keep each role decision beside the files it protects so future developers can trace access from route group to layout to page.
 
-If route-group server layouts already provide clear optimistic guards and no cross-route rewrite is needed, do not add Proxy merely for symmetry.
+Do not call backend current-user, database, or permission APIs from every layout merely to render a shell. Use the route layout for the lightweight redirect gate and enforce secure authorization near protected data/actions.
 
 ## Loading, Error, Validation, And Navigation
 
@@ -855,7 +851,7 @@ Build a new OrangeBD Next project in this order:
 10. Add login/current-user/logout hooks or server actions.
 11. Add AppProviders only for actual shared client state.
 12. Add Firebase/Stripe/etc. under integrations when needed.
-13. Add route-group guards and optional Proxy optimistic redirects.
+13. Add filewise guest/admin/citizen guards in their matching route-group layouts.
 14. Add secure authorization near data and backend actions.
 15. Add loading/error/not-found states and form validation.
 16. Run typecheck, lint, build, route checks, API checks, and browser QA.
@@ -869,9 +865,9 @@ Do not:
 put full application logic in page.tsx
 mark the root layout client-side for one interactive child
 assume route-group names appear in URLs
-mix Proxy timing with React provider timing
-use Proxy as the only authorization layer
-fetch current user or database data in Proxy
+introduce centralized Proxy/middleware when the project uses filewise route-group guards
+put admin, citizen, and guest redirect branches into one unrelated role layout
+use a route-layout cookie check as the only authorization layer
 write production session cookies with plain document.cookie by default
 expose CMS credentials with NEXT_PUBLIC_
 use dynamic process.env lookup for public browser variables
@@ -891,10 +887,9 @@ Route/render:
 
 ```text
 Request
--> optional Proxy optimistic redirect
 -> root layout (server)
 -> AppProviders (client boundary)
--> route-group layout (server access check)
+-> matching route-group layout (filewise server access check)
 -> role layout shell
 -> page
 -> reusable components
