@@ -1,0 +1,4 @@
+interface:
+  display_name: "Windows Resizer"
+  short_description: "Force-resize stubborn Windows app windows"
+  default_prompt: "Use $windows-resizer to make stubborn Windows desktop app windows easier to resize."
