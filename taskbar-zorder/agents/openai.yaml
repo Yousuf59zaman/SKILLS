@@ -1,0 +1,4 @@
+interface:
+  display_name: "Taskbar Z-Order"
+  short_description: "Control Windows taskbar window ordering"
+  default_prompt: "Use $taskbar-zorder to diagnose and change whether normal Windows app windows can cover the taskbar."
