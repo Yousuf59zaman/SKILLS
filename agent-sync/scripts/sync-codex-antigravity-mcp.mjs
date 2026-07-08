@@ -438,9 +438,12 @@ function main() {
     return blockFromAntigravity(name, jsonServer, opts.startupTimeout);
   }
 
+  const EXCLUDE_TO_NON_OPENCODE = new Set(['browsermcp']);
+
   const missingByTarget = {};
   for (const t of targets) missingByTarget[t.name] = [];
   const conflicts = [];
+  const skippedExcluded = [];
 
   for (const name of [...allNames].sort()) {
     const presentTargets = targets.filter(t => t.servers.has(name));
@@ -449,7 +452,15 @@ function main() {
       const norms = presentTargets.map(t => stable(serverToJson(name, t)));
       if (new Set(norms).size > 1) conflicts.push(name);
     }
-    for (const t of missingTargets) missingByTarget[t.name].push(name);
+    for (const t of missingTargets) {
+      const source = findSource(name);
+      const fromOpencode = source && source.name === 'opencode';
+      if (fromOpencode && EXCLUDE_TO_NON_OPENCODE.has(name) && t.name !== 'opencode') {
+        skippedExcluded.push({ name, source: source.name, target: t.name, reason: 'browser/screenshot MCP excluded from non-OpenCode targets to avoid image-input errors' });
+        continue;
+      }
+      missingByTarget[t.name].push(name);
+    }
   }
 
   const totalMissing = Object.values(missingByTarget).reduce((s, v) => s + v.length, 0);
@@ -460,6 +471,7 @@ function main() {
     counts: { codex: codex.servers.size, antigravity: ag.servers.size, vscode: vscode.servers.size, opencode: opencode.servers.size, union: allNames.size, conflicts: conflicts.length, totalMissing },
     missingByTarget,
     conflicts,
+    skippedExcluded,
     backups: {},
     changed: false,
   };
@@ -522,6 +534,10 @@ function main() {
   if (conflicts.length) {
     console.log(`\nSame-name differences not overwritten (${conflicts.length}): ${conflicts.join(', ')}`);
     console.log('Review these manually if you want one side to replace the other.');
+  }
+  if (skippedExcluded.length) {
+    console.log(`\nExcluded from non-OpenCode targets (${skippedExcluded.length}):`);
+    for (const s of skippedExcluded) console.log(`  - ${s.name}: ${s.source} -> ${s.target} (${s.reason})`);
   }
   if (!opts.apply && totalMissing > 0) console.log('\nDry-run only. Re-run with --apply to write changes.');
   if (opts.apply) {

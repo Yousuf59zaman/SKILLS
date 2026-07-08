@@ -225,6 +225,7 @@ node skills/agent-sync/scripts/sync-codex-antigravity-cli.mjs
 - Do not direct-push to GitHub unless Yousuf explicitly asks for direct push after seeing the compare.
 - Do not copy into `.antigravity\extensions\...` vendor folders unless Yousuf explicitly provides that path.
 - Do not overwrite same-name MCP conflicts without manual inspection and user confirmation.
+- Browser/screenshot MCP servers (e.g. `browsermcp`) originating from OpenCode are excluded from Codex, Antigravity, and VSCode to avoid image-input errors on models that do not accept image content that way.
 - MCP sync copies definitions only; login/session state still belongs to each MCP/service.
 - CLI sync shares PATH access only; it does not install missing CLIs.
 - After MCP/CLI apply, tell Yousuf to reload/restart Antigravity, VSCode, and OpenCode if he wants them to notice new servers/PATH immediately.
