@@ -9,6 +9,7 @@ const APPDATA = process.env.APPDATA || path.join(HOME, 'AppData', 'Roaming');
 const LOCALAPPDATA = process.env.LOCALAPPDATA || path.join(HOME, 'AppData', 'Local');
 const CODEX_CONFIG = path.join(HOME, '.codex', 'config.toml');
 const VSCODE_MCP = path.join(APPDATA, 'Code', 'User', 'mcp.json');
+const OPENCODE_CONFIG = path.join(HOME, '.config', 'opencode', 'opencode.jsonc');
 const TOOLBOX_DIR = path.join(HOME, '.codex', 'mcp-toolbox');
 const TOOLBOX_SQLITE = path.join(TOOLBOX_DIR, 'dev.sqlite');
 const USER_BIN = path.join(HOME, '.local', 'bin');
@@ -356,6 +357,99 @@ function appendVscodeMcpServers(names, backup = true) {
   return { changed: true, backup: backupPath };
 }
 
+function stripJsoncComments(text) {
+  let out = '';
+  let i = 0;
+  let inString = false;
+  while (i < text.length) {
+    const ch = text[i];
+    if (inString) {
+      out += ch;
+      if (ch === '\\' && i + 1 < text.length) { out += text[i + 1]; i += 2; continue; }
+      if (ch === '"') inString = false;
+      i++;
+      continue;
+    }
+    if (ch === '"') { inString = true; out += ch; i++; continue; }
+    if (ch === '/' && text[i + 1] === '/') { while (i < text.length && text[i] !== '\n') i++; continue; }
+    if (ch === '/' && text[i + 1] === '*') { i += 2; while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) i++; i += 2; continue; }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+function mcpOpencodeServer(name) {
+  if (name === 'github') {
+    return {
+      type: 'local',
+      command: ['docker', 'run', '-i', '--rm', '-e', 'GITHUB_PERSONAL_ACCESS_TOKEN', '-e', 'GITHUB_READ_ONLY=1', 'ghcr.io/github/github-mcp-server'],
+      environment: { GITHUB_PERSONAL_ACCESS_TOKEN: '{env:GITHUB_PERSONAL_ACCESS_TOKEN}' },
+      enabled: true,
+    };
+  }
+  if (name === 'playwright') {
+    return { type: 'local', command: ['npx', '-y', '@playwright/mcp@latest'], enabled: true };
+  }
+  if (name === 'chrome_devtools') {
+    return { type: 'local', command: ['npx', '-y', 'chrome-devtools-mcp@latest'], enabled: true };
+  }
+  if (name === 'context7') {
+    return { type: 'local', command: ['npx', '-y', '@upstash/context7-mcp@latest'], enabled: true };
+  }
+  if (name === 'firecrawl') {
+    return { type: 'local', command: ['npx', '-y', 'firecrawl-mcp@latest'], enabled: true };
+  }
+  if (name === 'sentry') {
+    return { type: 'local', command: ['npx', '-y', '@sentry/mcp-server@latest', '--agent'], enabled: true };
+  }
+  if (name === 'mcp_toolbox') {
+    return {
+      type: 'local',
+      command: [path.join(USER_BIN, 'toolbox.exe'), '--stdio', '--prebuilt', 'sqlite', '--log-level', 'ERROR'],
+      environment: { SQLITE_DATABASE: TOOLBOX_SQLITE },
+      enabled: true,
+    };
+  }
+  throw new Error(`No OpenCode MCP server template for ${name}`);
+}
+
+function readOpencodeConfig() {
+  try {
+    const text = fs.readFileSync(OPENCODE_CONFIG, 'utf8').replace(/^\uFEFF/, '');
+    if (!text.trim()) return { $schema: 'https://opencode.ai/config.json', mcp: {} };
+    const cleaned = stripJsoncComments(text);
+    const raw = JSON.parse(cleaned);
+    if (!raw.mcp || typeof raw.mcp !== 'object') raw.mcp = {};
+    return raw;
+  } catch (err) {
+    if (err.code === 'ENOENT') return { $schema: 'https://opencode.ai/config.json', mcp: {} };
+    throw err;
+  }
+}
+
+function hasOpencodeMcpServer(raw, name) {
+  return Object.prototype.hasOwnProperty.call(raw.mcp, name);
+}
+
+function backupOpencodeConfig() {
+  if (!fs.existsSync(OPENCODE_CONFIG)) return null;
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+  const backup = `${OPENCODE_CONFIG}.bak-${stamp}`;
+  fs.copyFileSync(OPENCODE_CONFIG, backup);
+  return backup;
+}
+
+function appendOpencodeMcpServers(names, backup = true) {
+  if (!names.length) return { changed: false, backup: null };
+  const raw = readOpencodeConfig();
+  for (const name of names) raw.mcp[name] = mcpOpencodeServer(name);
+  fs.mkdirSync(path.dirname(OPENCODE_CONFIG), { recursive: true });
+  const backupPath = backup ? backupOpencodeConfig() : null;
+  fs.writeFileSync(OPENCODE_CONFIG, `${JSON.stringify(raw, null, 2)}\n`, 'utf8');
+  return { changed: true, backup: backupPath };
+}
+
 function addUserPath(dir) {
   fs.mkdirSync(dir, { recursive: true });
   const current = String(process.env.Path || process.env.PATH || '');
@@ -418,7 +512,7 @@ function installTool(tool) {
   return { skipped: true, reason: `unsupported installer ${tool.installer.type}` };
 }
 
-function inspectTool(tool, configText, vscodeMcpRaw) {
+function inspectTool(tool, configText, vscodeMcpRaw, opencodeRaw) {
   const commandHits = {};
   for (const command of tool.commands || []) {
     const hit = findCommand(command);
@@ -427,6 +521,7 @@ function inspectTool(tool, configText, vscodeMcpRaw) {
   const npmInstalled = tool.npmPackage ? npmPackageInstalled(tool.npmPackage) : null;
   const mcpConfigured = tool.mcpName ? hasMcpServer(configText, tool.mcpName) : null;
   const vscodeMcpConfigured = tool.mcpName && vscodeMcpRaw ? hasVscodeMcpServer(vscodeMcpRaw, tool.mcpName) : null;
+  const opencodeMcpConfigured = tool.mcpName && opencodeRaw ? hasOpencodeMcpServer(opencodeRaw, tool.mcpName) : null;
   const prerequisites = {};
   for (const command of tool.prerequisiteCommands || []) prerequisites[command] = findCommand(command);
   let installed = false;
@@ -434,7 +529,7 @@ function inspectTool(tool, configText, vscodeMcpRaw) {
   else if (tool.id === 'github-mcp') installed = Boolean(prerequisites.docker) && Boolean(mcpConfigured);
   else if (tool.id === 'mcp-toolbox') installed = Object.keys(commandHits).length > 0 && Boolean(mcpConfigured);
   else installed = Boolean(npmInstalled) && Boolean(mcpConfigured);
-  return { id: tool.id, title: tool.title, type: tool.type, installed, commands: commandHits, npmPackage: tool.npmPackage || null, npmInstalled, mcpName: tool.mcpName || null, mcpConfigured, vscodeMcpConfigured, prerequisites };
+  return { id: tool.id, title: tool.title, type: tool.type, installed, commands: commandHits, npmPackage: tool.npmPackage || null, npmInstalled, mcpName: tool.mcpName || null, mcpConfigured, vscodeMcpConfigured, opencodeMcpConfigured, prerequisites };
 }
 
 function main() {
@@ -443,10 +538,12 @@ function main() {
   const allTools = [...TOP_DEV_TOOLS, ...SUPPORT_TOOLS];
   let configText = codexConfigText();
   let vscodeMcpRaw = readVscodeMcp();
-  const before = allTools.map(tool => inspectTool(tool, configText, vscodeMcpRaw));
+  let opencodeRaw = readOpencodeConfig();
+  const before = allTools.map(tool => inspectTool(tool, configText, vscodeMcpRaw, opencodeRaw));
   const installResults = [];
   const mcpToAdd = [];
   const vscodeMcpToAdd = [];
+  const opencodeMcpToAdd = [];
 
   if (opts.apply) {
     for (const tool of allTools) {
@@ -458,6 +555,10 @@ function main() {
       if (opts.mcpConfig && tool.type === 'mcp' && tool.mcpName && !hasVscodeMcpServer(vscodeMcpRaw, tool.mcpName)) {
         vscodeMcpToAdd.push(tool.mcpName);
         vscodeMcpRaw.servers[tool.mcpName] = {};
+      }
+      if (opts.mcpConfig && tool.type === 'mcp' && tool.mcpName && !hasOpencodeMcpServer(opencodeRaw, tool.mcpName)) {
+        opencodeMcpToAdd.push(tool.mcpName);
+        opencodeRaw.mcp[tool.mcpName] = {};
       }
       if (status.installed) continue;
       if (tool.type === 'cli' && opts.install) {
@@ -476,11 +577,13 @@ function main() {
     }
     if (mcpToAdd.length) appendMcpBlocks(mcpToAdd, opts.backup);
     if (vscodeMcpToAdd.length) appendVscodeMcpServers(vscodeMcpToAdd, opts.backup);
+    if (opencodeMcpToAdd.length) appendOpencodeMcpServers(opencodeMcpToAdd, opts.backup);
   }
 
   configText = codexConfigText();
   vscodeMcpRaw = readVscodeMcp();
-  const after = allTools.map(tool => inspectTool(tool, configText, vscodeMcpRaw));
+  opencodeRaw = readOpencodeConfig();
+  const after = allTools.map(tool => inspectTool(tool, configText, vscodeMcpRaw, opencodeRaw));
   const topAfter = after.filter(item => !SUPPORT_TOOLS.some(tool => tool.id === item.id));
   const result = {
     mode: opts.apply ? 'apply' : 'dry-run',
@@ -491,6 +594,7 @@ function main() {
     tools: topAfter,
     plannedMcpConfigAdds: opts.apply ? [] : before.filter(item => item.type === 'mcp' && !item.mcpConfigured).map(item => item.mcpName).filter(Boolean),
     plannedVscodeMcpConfigAdds: opts.apply ? [] : before.filter(item => item.type === 'mcp' && !item.vscodeMcpConfigured).map(item => item.mcpName).filter(Boolean),
+    plannedOpencodeMcpConfigAdds: opts.apply ? [] : before.filter(item => item.type === 'mcp' && !item.opencodeMcpConfigured).map(item => item.mcpName).filter(Boolean),
     installResults,
   };
 
@@ -504,7 +608,7 @@ function main() {
     const mark = item.installed ? 'ok' : 'missing';
     const details = item.type === 'cli'
       ? Object.entries(item.commands).map(([name, p]) => `${name}=${p}`).join(', ')
-      : `mcp=${item.mcpConfigured ? 'configured' : 'missing'}, vscode=${item.vscodeMcpConfigured ? 'configured' : 'missing'}${item.npmPackage ? `, npm=${item.npmInstalled ? 'installed' : 'missing'}` : ''}`;
+      : `mcp=${item.mcpConfigured ? 'configured' : 'missing'}, vscode=${item.vscodeMcpConfigured ? 'configured' : 'missing'}, opencode=${item.opencodeMcpConfigured ? 'configured' : 'missing'}${item.npmPackage ? `, npm=${item.npmInstalled ? 'installed' : 'missing'}` : ''}`;
     console.log(`- ${mark}: ${item.title} (${item.id})${details ? ` — ${details}` : ''}`);
   }
   if (result.supportTools.length) {

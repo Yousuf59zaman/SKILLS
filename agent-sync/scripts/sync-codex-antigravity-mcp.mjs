@@ -8,9 +8,10 @@ const APPDATA = process.env.APPDATA || path.join(HOME, 'AppData', 'Roaming');
 const DEFAULT_CODEX_CONFIG = path.join(HOME, '.codex', 'config.toml');
 const DEFAULT_ANTIGRAVITY_MCP = path.join(APPDATA, 'Antigravity', 'User', 'mcp.json');
 const DEFAULT_VSCODE_MCP = path.join(APPDATA, 'Code', 'User', 'mcp.json');
+const DEFAULT_OPENCODE_CONFIG = path.join(HOME, '.config', 'opencode', 'opencode.jsonc');
 
 function usage(exitCode = 0) {
-  console.log(`Usage: node scripts/sync-codex-antigravity-mcp.mjs [options]\n\nSynchronize the union of MCP servers across Codex, Antigravity, and VSCode.\nDefault mode is dry-run; use --apply to write changes.\n\nOptions:\n  --apply                         Write missing MCP servers to the other apps.\n  --json                          Print machine-readable summary.\n  --codex-config <path>            Override Codex config.toml path.\n  --antigravity-mcp <path>         Override Antigravity User/mcp.json path.\n  --vscode-mcp <path>              Override VSCode User/mcp.json path.\n  --startup-timeout <seconds>      Startup timeout for JSON->Codex stdio servers (default: 120).\n  --no-backup                      Do not create .bak-* files before writing.\n  --help                           Show help.\n\nDefaults:\n  Codex config:       ${DEFAULT_CODEX_CONFIG}\n  Antigravity MCP:    ${DEFAULT_ANTIGRAVITY_MCP}\n  VSCode MCP:         ${DEFAULT_VSCODE_MCP}\n`);
+  console.log(`Usage: node scripts/sync-codex-antigravity-mcp.mjs [options]\n\nSynchronize the union of MCP servers across Codex, Antigravity, VSCode, and OpenCode.\nDefault mode is dry-run; use --apply to write changes.\n\nOptions:\n  --apply                         Write missing MCP servers to the other apps.\n  --json                          Print machine-readable summary.\n  --codex-config <path>            Override Codex config.toml path.\n  --antigravity-mcp <path>         Override Antigravity User/mcp.json path.\n  --vscode-mcp <path>              Override VSCode User/mcp.json path.\n  --opencode-config <path>         Override OpenCode opencode.jsonc path.\n  --startup-timeout <seconds>      Startup timeout for JSON->Codex stdio servers (default: 120).\n  --no-backup                      Do not create .bak-* files before writing.\n  --help                           Show help.\n\nDefaults:\n  Codex config:       ${DEFAULT_CODEX_CONFIG}\n  Antigravity MCP:    ${DEFAULT_ANTIGRAVITY_MCP}\n  VSCode MCP:         ${DEFAULT_VSCODE_MCP}\n  OpenCode config:    ${DEFAULT_OPENCODE_CONFIG}\n`);
   process.exit(exitCode);
 }
 
@@ -22,6 +23,7 @@ function parseArgs(argv) {
     codexConfig: DEFAULT_CODEX_CONFIG,
     antigravityMcp: DEFAULT_ANTIGRAVITY_MCP,
     vscodeMcp: DEFAULT_VSCODE_MCP,
+    opencodeConfig: DEFAULT_OPENCODE_CONFIG,
     startupTimeout: 120,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -37,6 +39,7 @@ function parseArgs(argv) {
     else if (a === '--codex-config') opts.codexConfig = next();
     else if (a === '--antigravity-mcp') opts.antigravityMcp = next();
     else if (a === '--vscode-mcp') opts.vscodeMcp = next();
+    else if (a === '--opencode-config') opts.opencodeConfig = next();
     else if (a === '--startup-timeout') opts.startupTimeout = Number(next());
     else throw new Error(`Unknown option: ${a}`);
   }
@@ -46,6 +49,7 @@ function parseArgs(argv) {
   opts.codexConfig = path.resolve(expandPath(opts.codexConfig));
   opts.antigravityMcp = path.resolve(expandPath(opts.antigravityMcp));
   opts.vscodeMcp = path.resolve(expandPath(opts.vscodeMcp));
+  opts.opencodeConfig = path.resolve(expandPath(opts.opencodeConfig));
   return opts;
 }
 
@@ -191,6 +195,103 @@ function readJsonMcp(file) {
   return { raw, servers: new Map(Object.entries(raw.servers)) };
 }
 
+function stripJsoncComments(text) {
+  let out = '';
+  let i = 0;
+  let inString = false;
+  while (i < text.length) {
+    const ch = text[i];
+    if (inString) {
+      out += ch;
+      if (ch === '\\' && i + 1 < text.length) { out += text[i + 1]; i += 2; continue; }
+      if (ch === '"') inString = false;
+      i++;
+      continue;
+    }
+    if (ch === '"') { inString = true; out += ch; i++; continue; }
+    if (ch === '/' && text[i + 1] === '/') {
+      while (i < text.length && text[i] !== '\n') i++;
+      continue;
+    }
+    if (ch === '/' && text[i + 1] === '*') {
+      i += 2;
+      while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) i++;
+      i += 2;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+function readOpencodeMcp(file) {
+  const text = readTextIfExists(file);
+  if (!text.trim()) return { text, raw: { mcp: {} }, servers: new Map() };
+  const cleaned = stripJsoncComments(text);
+  const raw = JSON.parse(cleaned);
+  if (!raw.mcp || typeof raw.mcp !== 'object') raw.mcp = {};
+  return { text, raw, servers: new Map(Object.entries(raw.mcp)) };
+}
+
+function toJsonComparable(server) {
+  const out = {};
+  if (server.command) {
+    out.command = String(server.command);
+    out.args = Array.isArray(server.args) ? server.args.map(String) : [];
+    if (server.env && Object.keys(server.env).length) out.env = { ...server.env };
+    out.type = server.type ? String(server.type) : 'stdio';
+  }
+  if (server.url) out.url = String(server.url);
+  if (server.headers && Object.keys(server.headers).length) out.headers = { ...server.headers };
+  return sortKeys(cleanObject(out));
+}
+
+function toOpencodeServer(server) {
+  const out = {};
+  if (server.command) {
+    out.type = 'local';
+    out.command = [String(server.command), ...(Array.isArray(server.args) ? server.args.map(String) : [])];
+    const env = { ...(server.env || {}) };
+    for (const key of server.env_vars || []) {
+      if (!env[key]) env[key] = `{env:${key}}`;
+    }
+    const convertedEnv = {};
+    for (const [key, value] of Object.entries(env)) {
+      convertedEnv[key] = String(value).replace(/^\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}$/, '{env:$1}');
+    }
+    if (Object.keys(convertedEnv).length) out.environment = convertedEnv;
+    out.enabled = true;
+  }
+  if (server.url) {
+    out.type = 'remote';
+    out.url = String(server.url);
+    out.enabled = true;
+    if (server.headers && Object.keys(server.headers).length) out.headers = { ...server.headers };
+  }
+  return cleanObject(out);
+}
+
+function fromOpencodeServer(server) {
+  const out = {};
+  if (Array.isArray(server.command) && server.command.length > 0) {
+    out.command = String(server.command[0]);
+    out.args = server.command.slice(1).map(String);
+    const env = server.environment && typeof server.environment === 'object' ? server.environment : {};
+    const convertedEnv = {};
+    for (const [key, value] of Object.entries(env)) {
+      convertedEnv[key] = String(value).replace(/^\{env:([A-Za-z_][A-Za-z0-9_]*)\}$/, '${env:$1}');
+    }
+    if (Object.keys(convertedEnv).length) out.env = convertedEnv;
+    out.type = 'stdio';
+  }
+  if (server.url) {
+    out.url = String(server.url);
+    if (server.headers && Object.keys(server.headers).length) out.headers = { ...server.headers };
+  }
+  return cleanObject(out);
+}
+
 function cleanObject(obj) {
   const out = {};
   for (const [k, v] of Object.entries(obj || {})) {
@@ -298,17 +399,19 @@ function main() {
   const codex = parseCodexMcp(opts.codexConfig);
   const ag = readJsonMcp(opts.antigravityMcp);
   const vscode = readJsonMcp(opts.vscodeMcp);
+  const opencode = readOpencodeMcp(opts.opencodeConfig);
 
   const targets = [
     { name: 'codex', kind: 'toml', path: opts.codexConfig, servers: codex.servers, text: codex.text, raw: null, exists: fs.existsSync(opts.codexConfig) },
     { name: 'antigravity', kind: 'json', path: opts.antigravityMcp, servers: ag.servers, text: null, raw: ag.raw, exists: fs.existsSync(opts.antigravityMcp) },
     { name: 'vscode', kind: 'json', path: opts.vscodeMcp, servers: vscode.servers, text: null, raw: vscode.raw, exists: fs.existsSync(opts.vscodeMcp) },
+    { name: 'opencode', kind: 'jsonc', path: opts.opencodeConfig, servers: opencode.servers, text: opencode.text, raw: opencode.raw, exists: fs.existsSync(opts.opencodeConfig) },
   ];
 
   const allNames = new Set();
   for (const t of targets) for (const name of t.servers.keys()) allNames.add(name);
 
-  const sourcePriority = ['codex', 'antigravity', 'vscode'];
+  const sourcePriority = ['codex', 'antigravity', 'vscode', 'opencode'];
   function findSource(name) {
     for (const srcName of sourcePriority) {
       const src = targets.find(t => t.name === srcName);
@@ -319,7 +422,20 @@ function main() {
 
   function serverToJson(name, source) {
     const server = source.servers.get(name);
-    return source.kind === 'toml' ? codexToAntigravity(server) : comparableServer(server);
+    if (source.kind === 'toml') return codexToAntigravity(server);
+    if (source.kind === 'jsonc') return fromOpencodeServer(server);
+    return comparableServer(server);
+  }
+
+  function serverToTarget(name, source, targetKind) {
+    const jsonServer = serverToJson(name, source);
+    if (targetKind === 'jsonc') return toOpencodeServer(jsonServer);
+    return jsonServer;
+  }
+
+  function serverToCodexBlock(name, source) {
+    const jsonServer = serverToJson(name, source);
+    return blockFromAntigravity(name, jsonServer, opts.startupTimeout);
   }
 
   const missingByTarget = {};
@@ -340,8 +456,8 @@ function main() {
 
   const result = {
     mode: opts.apply ? 'apply' : 'dry-run',
-    paths: { codexConfig: opts.codexConfig, antigravityMcp: opts.antigravityMcp, vscodeMcp: opts.vscodeMcp },
-    counts: { codex: codex.servers.size, antigravity: ag.servers.size, vscode: vscode.servers.size, union: allNames.size, conflicts: conflicts.length, totalMissing },
+    paths: { codexConfig: opts.codexConfig, antigravityMcp: opts.antigravityMcp, vscodeMcp: opts.vscodeMcp, opencodeConfig: opts.opencodeConfig },
+    counts: { codex: codex.servers.size, antigravity: ag.servers.size, vscode: vscode.servers.size, opencode: opencode.servers.size, union: allNames.size, conflicts: conflicts.length, totalMissing },
     missingByTarget,
     conflicts,
     backups: {},
@@ -353,20 +469,27 @@ function main() {
       const missing = missingByTarget[t.name];
       if (!missing.length) continue;
       if (opts.backup && t.exists) result.backups[t.name] = backupFile(t.path);
-      if (t.kind === 'json') {
+      if (t.kind === 'json' || t.kind === 'jsonc') {
+        const mcpKey = t.kind === 'jsonc' ? 'mcp' : 'servers';
+        if (!t.raw[mcpKey]) t.raw[mcpKey] = {};
         for (const name of missing) {
           const source = findSource(name);
-          if (source) t.raw.servers[name] = serverToJson(name, source);
+          if (source) t.raw[mcpKey][name] = serverToTarget(name, source, t.kind);
         }
         ensureParent(t.path);
-        fs.writeFileSync(t.path, `${JSON.stringify(t.raw, null, 2)}\n`, 'utf8');
+        if (t.kind === 'jsonc') {
+          const schema = t.raw.$schema ? { $schema: t.raw.$schema } : {};
+          fs.writeFileSync(t.path, `${JSON.stringify({ ...schema, ...t.raw }, null, 2)}\n`, 'utf8');
+        } else {
+          fs.writeFileSync(t.path, `${JSON.stringify(t.raw, null, 2)}\n`, 'utf8');
+        }
         result.changed = true;
       } else {
         let text = t.text;
         if (text && !text.endsWith('\n')) text += '\n';
         for (const name of missing) {
           const source = findSource(name);
-          if (source) text += blockFromAntigravity(name, serverToJson(name, source), opts.startupTimeout);
+          if (source) text += serverToCodexBlock(name, source);
         }
         ensureParent(t.path);
         fs.writeFileSync(t.path, text, 'utf8');
@@ -383,6 +506,7 @@ function main() {
   console.log(`Codex MCP servers: ${codex.servers.size}`);
   console.log(`Antigravity MCP servers: ${ag.servers.size}`);
   console.log(`VSCode MCP servers: ${vscode.servers.size}`);
+  console.log(`OpenCode MCP servers: ${opencode.servers.size}`);
   console.log(`Union MCP servers: ${allNames.size}`);
   if (totalMissing === 0) console.log('Union already synced: no missing MCP servers.');
   for (const t of targets) {
