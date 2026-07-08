@@ -148,21 +148,41 @@ function tomlSingleQuoted(value) {
 function parseCodexPath(file) {
   const text = readTextIfExists(file);
   const section = findTomlSection(text, 'shell_environment_policy');
-  if (!section) return { text, pathValue: '', entries: [], hasPath: false, section: null };
-  const body = text.slice(section.headerEnd, section.end);
-  const setPath = findPathValueInBody(body, /(\bset\s*=\s*\{[^\n}]*\bPATH\s*=\s*)('([^']*(?:''[^']*)*)'|"((?:\\.|[^"\\])*)")/m);
-  const directPath = setPath || findPathValueInBody(body, /^(\s*PATH\s*=\s*)('([^']*(?:''[^']*)*)'|"((?:\\.|[^"\\])*)")/m);
-  if (!directPath) return { text, pathValue: '', entries: [], hasPath: false, section };
-  const pathValue = parseQuotedTomlString(directPath.raw);
-  return {
-    text,
-    pathValue,
-    entries: splitPathValue(pathValue),
-    hasPath: true,
-    section,
-    valueStart: section.headerEnd + directPath.valueStart,
-    valueEnd: section.headerEnd + directPath.valueEnd,
-  };
+  const setSub = findTomlSection(text, 'shell_environment_policy.set');
+  if (section) {
+    const body = text.slice(section.headerEnd, section.end);
+    const setPath = findPathValueInBody(body, /(\bset\s*=\s*\{[^\n}]*\bPATH\s*=\s*)('([^']*(?:''[^']*)*)'|"((?:\\.|[^"\\])*)")/m);
+    const directPath = setPath || findPathValueInBody(body, /^(\s*PATH\s*=\s*)('([^']*(?:''[^']*)*)'|"((?:\\.|[^"\\])*)")/m);
+    if (!directPath) return { text, pathValue: '', entries: [], hasPath: false, section, setSub: null };
+    const pathValue = parseQuotedTomlString(directPath.raw);
+    return {
+      text,
+      pathValue,
+      entries: splitPathValue(pathValue),
+      hasPath: true,
+      section,
+      setSub: null,
+      valueStart: section.headerEnd + directPath.valueStart,
+      valueEnd: section.headerEnd + directPath.valueEnd,
+    };
+  }
+  if (setSub) {
+    const body = text.slice(setSub.headerEnd, setSub.end);
+    const directPath = findPathValueInBody(body, /^(\s*PATH\s*=\s*)('([^']*(?:''[^']*)*)'|"((?:\\.|[^"\\])*)")/m);
+    if (!directPath) return { text, pathValue: '', entries: [], hasPath: false, section: null, setSub };
+    const pathValue = parseQuotedTomlString(directPath.raw);
+    return {
+      text,
+      pathValue,
+      entries: splitPathValue(pathValue),
+      hasPath: true,
+      section: null,
+      setSub,
+      valueStart: setSub.headerEnd + directPath.valueStart,
+      valueEnd: setSub.headerEnd + directPath.valueEnd,
+    };
+  }
+  return { text, pathValue: '', entries: [], hasPath: false, section: null, setSub: null };
 }
 
 function updateCodexPath(parsed, file, newValue) {
@@ -172,6 +192,8 @@ function updateCodexPath(parsed, file, newValue) {
     text = text.slice(0, parsed.valueStart) + replacement + text.slice(parsed.valueEnd);
   } else if (parsed.section) {
     text = text.slice(0, parsed.section.headerEnd) + `set = { PATH = ${replacement} }\n` + text.slice(parsed.section.headerEnd);
+  } else if (parsed.setSub) {
+    text = text.slice(0, parsed.setSub.headerEnd) + `PATH = ${replacement}\n` + text.slice(parsed.setSub.headerEnd);
   } else {
     if (text && !text.endsWith('\n')) text += '\n';
     text += `\n[shell_environment_policy]\nset = { PATH = ${replacement} }\n`;
