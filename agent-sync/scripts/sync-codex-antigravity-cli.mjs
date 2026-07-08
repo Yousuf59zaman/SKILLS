@@ -8,6 +8,7 @@ const APPDATA = process.env.APPDATA || path.join(HOME, 'AppData', 'Roaming');
 const LOCALAPPDATA = process.env.LOCALAPPDATA || path.join(HOME, 'AppData', 'Local');
 const DEFAULT_CODEX_CONFIG = path.join(HOME, '.codex', 'config.toml');
 const DEFAULT_AG_SETTINGS = path.join(APPDATA, 'Antigravity', 'User', 'settings.json');
+const DEFAULT_VSCODE_SETTINGS = path.join(APPDATA, 'Code', 'User', 'settings.json');
 const DEFAULT_CLI_NAMES = [
   'codex', 'git', 'gh', 'docker', 'kubectl', 'helm', 'terraform',
   'supabase', 'vercel', 'postman', 'pnpm', 'uv', 'rg', 'jq',
@@ -30,7 +31,7 @@ const DEFAULT_DIRS = [
 const PATH_MACRO = '${env:Path}';
 
 function usage(exitCode = 0) {
-  console.log(`Usage: node scripts/sync-codex-antigravity-cli.mjs [options]\n\nSynchronize CLI PATH access between Codex and Antigravity terminals.\nDefault mode is dry-run; use --apply to write changes.\n\nOptions:\n  --apply                         Update Codex config + Antigravity settings.\n  --json                          Print machine-readable summary.\n  --codex-config <path>            Override Codex config.toml path.\n  --antigravity-settings <path>    Override Antigravity User/settings.json path.\n  --cli <name[,name...]>           Add CLI names to verify/discover. Can repeat.\n  --path <dir>                     Add an explicit directory to sync. Can repeat.\n  --no-backup                      Do not create .bak-* files before writing.\n  --help                           Show help.\n\nDefaults:\n  Codex config:          ${DEFAULT_CODEX_CONFIG}\n  Antigravity settings:  ${DEFAULT_AG_SETTINGS}\n`);
+  console.log(`Usage: node scripts/sync-codex-antigravity-cli.mjs [options]\n\nSynchronize CLI PATH access across Codex, Antigravity, and VSCode terminals.\nDefault mode is dry-run; use --apply to write changes.\n\nOptions:\n  --apply                         Update Codex config + Antigravity/VSCode settings.\n  --json                          Print machine-readable summary.\n  --codex-config <path>            Override Codex config.toml path.\n  --antigravity-settings <path>    Override Antigravity User/settings.json path.\n  --vscode-settings <path>         Override VSCode User/settings.json path.\n  --cli <name[,name...]>           Add CLI names to verify/discover. Can repeat.\n  --path <dir>                     Add an explicit directory to sync. Can repeat.\n  --no-backup                      Do not create .bak-* files before writing.\n  --help                           Show help.\n\nDefaults:\n  Codex config:          ${DEFAULT_CODEX_CONFIG}\n  Antigravity settings:  ${DEFAULT_AG_SETTINGS}\n  VSCode settings:       ${DEFAULT_VSCODE_SETTINGS}\n`);
   process.exit(exitCode);
 }
 
@@ -41,6 +42,7 @@ function parseArgs(argv) {
     backup: true,
     codexConfig: DEFAULT_CODEX_CONFIG,
     antigravitySettings: DEFAULT_AG_SETTINGS,
+    vscodeSettings: DEFAULT_VSCODE_SETTINGS,
     cliNames: [...DEFAULT_CLI_NAMES],
     explicitPaths: [],
   };
@@ -56,12 +58,14 @@ function parseArgs(argv) {
     else if (a === '--no-backup') opts.backup = false;
     else if (a === '--codex-config') opts.codexConfig = next();
     else if (a === '--antigravity-settings') opts.antigravitySettings = next();
+    else if (a === '--vscode-settings') opts.vscodeSettings = next();
     else if (a === '--cli') opts.cliNames.push(...next().split(',').map(s => s.trim()).filter(Boolean));
     else if (a === '--path') opts.explicitPaths.push(next());
     else throw new Error(`Unknown option: ${a}`);
   }
   opts.codexConfig = path.resolve(expandPath(opts.codexConfig));
   opts.antigravitySettings = path.resolve(expandPath(opts.antigravitySettings));
+  opts.vscodeSettings = path.resolve(expandPath(opts.vscodeSettings));
   opts.explicitPaths = opts.explicitPaths.map(p => path.resolve(expandPath(p)));
   opts.cliNames = [...new Set(opts.cliNames.map(s => s.trim()).filter(Boolean))];
   return opts;
@@ -208,7 +212,7 @@ function unescapeJsonStringContent(content) {
   return JSON.parse(`"${content}"`);
 }
 
-function extractAntigravityPath(text) {
+function extractJsonSettingsPath(text) {
   const objectRe = /"terminal\.integrated\.env\.windows"\s*:\s*\{[\s\S]*?\n\s*\}/m;
   const objectMatch = text.match(objectRe);
   if (!objectMatch) return { hasObject: false, hasPath: false, pathValue: '', entries: [] };
@@ -219,9 +223,9 @@ function extractAntigravityPath(text) {
   return { hasObject: true, hasPath: true, pathValue, entries: splitPathValue(pathValue), objectMatch, pathMatch };
 }
 
-function updateAntigravityPath(text, newValue) {
+function updateJsonSettingsPath(text, newValue) {
   const escaped = jsonStringLiteral(newValue);
-  const info = extractAntigravityPath(text);
+  const info = extractJsonSettingsPath(text);
   if (!text.trim()) text = '{\n}\n';
   if (info.hasObject && info.hasPath) {
     return text.replace(/("terminal\.integrated\.env\.windows"\s*:\s*\{[\s\S]*?"Path"\s*:\s*)"(?:\\.|[^"\\])*"/m, `$1${escaped}`);
@@ -266,15 +270,23 @@ function discoverCommands(cliNames, searchEntries) {
 function main() {
   const opts = parseArgs(process.argv.slice(2));
   const codex = parseCodexPath(opts.codexConfig);
-  const agText = readTextIfExists(opts.antigravitySettings);
-  const ag = extractAntigravityPath(agText);
+
+  const jsonTargets = [
+    { name: 'antigravity', label: 'Antigravity', path: opts.antigravitySettings, text: readTextIfExists(opts.antigravitySettings), parsed: null, entries: [], pathValue: '', changed: false, targetPath: '' },
+    { name: 'vscode', label: 'VSCode', path: opts.vscodeSettings, text: readTextIfExists(opts.vscodeSettings), parsed: null, entries: [], pathValue: '', changed: false, targetPath: '' },
+  ];
+  for (const t of jsonTargets) {
+    t.parsed = extractJsonSettingsPath(t.text);
+    t.entries = t.parsed.entries;
+    t.pathValue = t.parsed.pathValue;
+  }
 
   const processPathEntries = splitPathValue(process.env.Path || process.env.PATH || '');
   const candidateSearchDirs = uniqueEntries([
     ...opts.explicitPaths,
     ...DEFAULT_DIRS,
     ...codex.entries,
-    ...ag.entries,
+    ...jsonTargets.flatMap(t => t.entries),
     ...processPathEntries,
   ]);
   const discovered = discoverCommands(opts.cliNames, candidateSearchDirs);
@@ -286,38 +298,49 @@ function main() {
   ]);
 
   const targetCodexEntries = mergePathEntries(codex.entries, configuredDirs);
-  const targetAgEntries = mergePathEntries(ag.entries, configuredDirs, { appendMacro: true });
   const targetCodexPath = targetCodexEntries.join(';');
-  const targetAgPath = targetAgEntries.join(';');
-
   const codexChanged = targetCodexPath !== codex.pathValue;
-  const agChanged = targetAgPath !== ag.pathValue;
+
+  for (const t of jsonTargets) {
+    const targetEntries = mergePathEntries(t.entries, configuredDirs, { appendMacro: true });
+    t.targetPath = targetEntries.join(';');
+    t.changed = t.targetPath !== t.pathValue;
+  }
+
+  const anyJsonChanged = jsonTargets.some(t => t.changed);
+  const anyChanged = codexChanged || anyJsonChanged;
+
   const result = {
     mode: opts.apply ? 'apply' : 'dry-run',
-    paths: { codexConfig: opts.codexConfig, antigravitySettings: opts.antigravitySettings },
+    paths: { codexConfig: opts.codexConfig, antigravitySettings: opts.antigravitySettings, vscodeSettings: opts.vscodeSettings },
     counts: {
       codexPathEntries: codex.entries.length,
-      antigravityPathEntries: ag.entries.length,
+      antigravityPathEntries: jsonTargets[0].entries.length,
+      vscodePathEntries: jsonTargets[1].entries.length,
       syncDirs: configuredDirs.length,
       foundCli: Object.keys(discovered.found).length,
       missingCli: discovered.missing.length,
     },
-    changes: { codexPath: codexChanged, antigravityPath: agChanged },
+    changes: { codexPath: codexChanged, antigravityPath: jsonTargets[0].changed, vscodePath: jsonTargets[1].changed },
     syncDirs: configuredDirs,
     foundCli: discovered.found,
     missingCli: discovered.missing,
     backups: {},
   };
 
-  if (opts.apply && (codexChanged || agChanged)) {
+  if (opts.apply && anyChanged) {
     if (opts.backup) {
       if (codexChanged) result.backups.codexConfig = backupFile(opts.codexConfig);
-      if (agChanged) result.backups.antigravitySettings = backupFile(opts.antigravitySettings);
+      for (const t of jsonTargets) {
+        if (t.changed) result.backups[`${t.name}Settings`] = backupFile(t.path);
+      }
     }
     if (codexChanged) updateCodexPath(codex, opts.codexConfig, targetCodexPath);
-    if (agChanged) {
-      ensureParent(opts.antigravitySettings);
-      fs.writeFileSync(opts.antigravitySettings, updateAntigravityPath(agText, targetAgPath), 'utf8');
+    for (const t of jsonTargets) {
+      if (t.changed) {
+        ensureParent(t.path);
+        fs.writeFileSync(t.path, updateJsonSettingsPath(t.text, t.targetPath), 'utf8');
+      }
     }
   }
 
@@ -327,7 +350,7 @@ function main() {
   }
 
   console.log(`Codex PATH entries: ${codex.entries.length}`);
-  console.log(`Antigravity terminal PATH entries: ${ag.entries.length}`);
+  for (const t of jsonTargets) console.log(`${t.label} terminal PATH entries: ${t.entries.length}`);
   console.log(`Syncable CLI directories: ${configuredDirs.length}`);
   if (configuredDirs.length) {
     console.log('\nDirectories synced/kept:');
@@ -338,14 +361,14 @@ function main() {
   if (discovered.missing.length) {
     console.log(`\nMissing CLI commands (not installed or not discoverable): ${discovered.missing.join(', ')}`);
   }
-  if (!codexChanged && !agChanged) console.log('\nCLI PATH union already synced.');
+  if (!anyChanged) console.log('\nCLI PATH union already synced.');
   else {
     if (codexChanged) console.log('\nCodex PATH would be updated.');
-    if (agChanged) console.log('Antigravity terminal PATH would be updated.');
+    for (const t of jsonTargets) if (t.changed) console.log(`${t.label} terminal PATH would be updated.`);
     if (!opts.apply) console.log('Dry-run only. Re-run with --apply to write changes.');
   }
   if (opts.apply) {
-    console.log(codexChanged || agChanged ? '\nApplied CLI PATH sync.' : '\nNo changes needed.');
+    console.log(anyChanged ? '\nApplied CLI PATH sync.' : '\nNo changes needed.');
     for (const [label, backup] of Object.entries(result.backups)) if (backup) console.log(`Backup ${label}: ${backup}`);
   }
 }

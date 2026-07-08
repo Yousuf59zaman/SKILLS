@@ -1,6 +1,6 @@
 ---
 name: agent-sync
-description: Unified agent-environment sync for Codex, Claude, and Antigravity. Use when Yousuf asks to sync agents, make Codex/Claude/Antigravity share the same skills, sync MCP servers between Codex and Antigravity, sync CLI/PATH access between agents, combine MCP sync with skills/CLI sync, run "agent sync", copy whichever side has extra skills/MCPs/CLIs to the others, or publish the unified skill set to GitHub.
+description: Unified agent-environment sync for Codex, Claude, Antigravity, and VSCode. Use when Yousuf asks to sync agents, make Codex/Claude/Antigravity/VSCode share the same skills, sync MCP servers across Codex/Antigravity/VSCode, sync CLI/PATH access across agents, combine MCP sync with skills/CLI sync, run "agent sync", copy whichever side has extra skills/MCPs/CLIs to the others, or publish the unified skill set to GitHub.
 ---
 
 # Agent Sync
@@ -9,10 +9,10 @@ Use this umbrella skill for agent environment synchronization.
 
 It contains four sync tracks:
 
-1. **Skills sync** — make Codex, Claude, and Antigravity share the same AgentSkill folder union.
-2. **Tools setup** — check/install the top developer MCP/CLI tool set and add safe Codex MCP blocks.
-3. **MCP sync** — make Codex and Antigravity share the same MCP server definition union.
-4. **CLI sync** — make Codex and Antigravity terminals share PATH access for installed CLI tools.
+1. **Skills sync** — make Codex, Claude, Antigravity, and VSCode share the same AgentSkill folder union.
+2. **Tools setup** — check/install the top developer MCP/CLI tool set and add safe Codex + VSCode MCP blocks.
+3. **MCP sync** — make Codex, Antigravity, and VSCode share the same MCP server definition union.
+4. **CLI sync** — make Codex, Antigravity, and VSCode terminals share PATH access for installed CLI tools.
 
 ## Quick commands
 
@@ -52,6 +52,7 @@ What it does:
   - Codex: `%USERPROFILE%\.codex\skills`
   - Claude: `%USERPROFILE%\.claude\skills`
   - Antigravity: `%USERPROFILE%\.gemini\antigravity\skills`
+  - VSCode: `%USERPROFILE%\.vscode\skills`
 - Copies missing skills on `--apply`.
 - Replaces differing same-name skills with the newest recursive folder version, after backup.
 - Blocks replacement when different versions have near-tied mtimes, so a risky "newest" choice is not guessed.
@@ -76,7 +77,7 @@ Same-name content differences:
 - `--apply` automatically replaces older differing copies from the clearly newest modified copy.
 - Before replacement, the script backs up the target folder under `%USERPROFILE%\.openclaw\workspace\backups`.
 - If two different versions have mtimes within the ambiguity window, the script blocks that skill instead of guessing.
-- During `--apply`, ambiguous blocked versions are also copied to `%USERPROFILE%\.openclaw\workspace\backups\agent-skills-union-sync-<timestamp>\conflicts\<skill-id>\...` with a `manifest.json`; active Codex/Claude/Antigravity skill folders stay unchanged for that skill.
+- During `--apply`, ambiguous blocked versions are also copied to `%USERPROFILE%\.openclaw\workspace\backups\agent-skills-union-sync-<timestamp>\conflicts\<skill-id>\...` with a `manifest.json`; active Codex/Claude/Antigravity/VSCode skill folders stay unchanged for that skill.
 - If two locations both look newest and content differs, keep both by preserving the conflict bundle. Inspect manually, touch the intended source copy to make it clearly newest, or pass `--allow-ambiguous-latest` only when Yousuf explicitly accepts latest-wins risk.
 - Use `--no-content-sync` when you only want missing skills copied and never want existing same-name skills replaced.
 
@@ -86,7 +87,7 @@ GitHub publish safety:
 - If GitHub differs from local roots, ask Yousuf which action he wants before any GitHub write. Do not silently choose pull, push, merge, or conflict strategy.
 - Valid choices to offer:
   - `local-only`: do not touch GitHub this run.
-  - `pull-merge`: pull GitHub-only/newer skills into Codex, Claude, and Antigravity first.
+  - `pull-merge`: pull GitHub-only/newer skills into Codex, Claude, Antigravity, and VSCode first.
   - `merge-and-push-branch`: merge newest both ways and push a new branch.
   - `direct-push`: push to the checked-out GitHub branch only when Yousuf explicitly asks.
   - `manual-conflict-review`: keep conflicting newest versions preserved for inspection.
@@ -117,9 +118,10 @@ What `--apply` does:
 - Installs missing CLI tools with trusted package managers (`winget` or `npm -g`) when an installer is known.
 - Installs missing npm MCP packages for Playwright, Chrome DevTools, Context7, Firecrawl, and Sentry.
 - Adds missing Codex MCP config blocks for GitHub, Playwright, Chrome DevTools, Context7, Firecrawl, Sentry, and MCP Toolbox.
+- Adds missing VSCode MCP server definitions to `%APPDATA%\Code\User\mcp.json` for the same set.
 - Creates a safe `antigravity.cmd` launcher in `%USERPROFILE%\.local\bin` only when a real Antigravity IDE/app target exists.
 - Leaves already-present tools and existing MCP blocks unchanged.
-- Creates a Codex config backup before adding MCP blocks unless `--no-backup` is passed.
+- Creates a Codex config backup and VSCode mcp.json backup before adding blocks unless `--no-backup` is passed.
 - Uses environment variable placeholders for secrets. Do not write tokens into config files.
 
 Useful commands:
@@ -151,11 +153,11 @@ What it does:
 
 - Reads Codex MCPs from `%USERPROFILE%\.codex\config.toml`.
 - Reads Antigravity MCPs from `%APPDATA%\Antigravity\User\mcp.json`.
-- Adds Codex-only MCP servers to Antigravity.
-- Appends Antigravity-only MCP servers to Codex.
+- Reads VSCode MCPs from `%APPDATA%\Code\User\mcp.json`.
+- Computes the union across all three targets and adds missing servers to whichever target lacks them.
 - Creates `.bak-*` backups before writing.
 - Reports same-name differences as conflicts instead of overwriting.
-- Converts Codex `env_vars = ["NAME"]` to Antigravity `${env:NAME}` placeholders, and back when appending to Codex.
+- Converts Codex `env_vars = ["NAME"]` to JSON `${env:NAME}` placeholders for Antigravity/VSCode, and back when appending to Codex.
 
 Useful commands:
 
@@ -176,9 +178,10 @@ What it does:
 
 - Reads Codex terminal PATH from `%USERPROFILE%\.codex\config.toml`.
 - Reads Antigravity terminal PATH from `%APPDATA%\Antigravity\User\settings.json`.
+- Reads VSCode terminal PATH from `%APPDATA%\Code\User\settings.json`.
 - Discovers installed CLI commands from the configured paths, current PATH, and known local CLI dirs.
-- Ensures both Codex and Antigravity can see the CLI directories that expose those tools.
-- Keeps Antigravity inheriting `${env:Path}`.
+- Ensures Codex, Antigravity, and VSCode can all see the CLI directories that expose those tools.
+- Keeps Antigravity and VSCode inheriting `${env:Path}`.
 - Creates `.bak-*` backups before writing.
 - Reports missing CLI commands instead of trying to install them.
 
@@ -206,6 +209,7 @@ node skills/agent-sync/scripts/sync-codex-antigravity-cli.mjs --cli docker,psql,
 ```bash
 codex mcp list
 node -e "JSON.parse(require('fs').readFileSync(process.env.APPDATA + '\\Antigravity\\User\\mcp.json','utf8')); console.log('antigravity mcp.json ok')"
+node -e "JSON.parse(require('fs').readFileSync(process.env.APPDATA + '\\Code\\User\\mcp.json','utf8')); console.log('vscode mcp.json ok')"
 openclaw skills list
 node skills/agent-sync/scripts/sync-codex-antigravity-cli.mjs
 ```
@@ -219,4 +223,4 @@ node skills/agent-sync/scripts/sync-codex-antigravity-cli.mjs
 - Do not overwrite same-name MCP conflicts without manual inspection and user confirmation.
 - MCP sync copies definitions only; login/session state still belongs to each MCP/service.
 - CLI sync shares PATH access only; it does not install missing CLIs.
-- After MCP/CLI apply, tell Yousuf to reload/restart Antigravity if he wants it to notice new servers/PATH immediately.
+- After MCP/CLI apply, tell Yousuf to reload/restart Antigravity and VSCode if he wants them to notice new servers/PATH immediately.

@@ -8,6 +8,7 @@ const HOME = os.homedir();
 const APPDATA = process.env.APPDATA || path.join(HOME, 'AppData', 'Roaming');
 const LOCALAPPDATA = process.env.LOCALAPPDATA || path.join(HOME, 'AppData', 'Local');
 const CODEX_CONFIG = path.join(HOME, '.codex', 'config.toml');
+const VSCODE_MCP = path.join(APPDATA, 'Code', 'User', 'mcp.json');
 const TOOLBOX_DIR = path.join(HOME, '.codex', 'mcp-toolbox');
 const TOOLBOX_SQLITE = path.join(TOOLBOX_DIR, 'dev.sqlite');
 const USER_BIN = path.join(HOME, '.local', 'bin');
@@ -284,6 +285,77 @@ function appendMcpBlocks(names, backup = true) {
   return { changed: true, backup: backupPath };
 }
 
+function mcpJsonServer(name) {
+  if (name === 'github') {
+    return {
+      command: 'docker',
+      args: ['run', '-i', '--rm', '-e', 'GITHUB_PERSONAL_ACCESS_TOKEN', '-e', 'GITHUB_READ_ONLY=1', 'ghcr.io/github/github-mcp-server'],
+      env: { GITHUB_PERSONAL_ACCESS_TOKEN: '${env:GITHUB_PERSONAL_ACCESS_TOKEN}' },
+      type: 'stdio',
+    };
+  }
+  if (name === 'playwright') {
+    return { command: 'npx', args: ['-y', '@playwright/mcp@latest'], type: 'stdio' };
+  }
+  if (name === 'chrome_devtools') {
+    return { command: 'npx', args: ['-y', 'chrome-devtools-mcp@latest'], type: 'stdio' };
+  }
+  if (name === 'context7') {
+    return { command: 'npx', args: ['-y', '@upstash/context7-mcp@latest'], type: 'stdio' };
+  }
+  if (name === 'firecrawl') {
+    return { command: 'npx', args: ['-y', 'firecrawl-mcp@latest'], type: 'stdio' };
+  }
+  if (name === 'sentry') {
+    return { command: 'npx', args: ['-y', '@sentry/mcp-server@latest', '--agent'], type: 'stdio' };
+  }
+  if (name === 'mcp_toolbox') {
+    return {
+      command: path.join(USER_BIN, 'toolbox.exe'),
+      args: ['--stdio', '--prebuilt', 'sqlite', '--log-level', 'ERROR'],
+      env: { SQLITE_DATABASE: TOOLBOX_SQLITE },
+      type: 'stdio',
+    };
+  }
+  throw new Error(`No JSON MCP server template for ${name}`);
+}
+
+function readVscodeMcp() {
+  try {
+    const text = fs.readFileSync(VSCODE_MCP, 'utf8').replace(/^\uFEFF/, '');
+    if (!text.trim()) return { servers: {}, inputs: [] };
+    const raw = JSON.parse(text);
+    if (!raw.servers || typeof raw.servers !== 'object') raw.servers = {};
+    if (!Array.isArray(raw.inputs)) raw.inputs = [];
+    return raw;
+  } catch (err) {
+    if (err.code === 'ENOENT') return { servers: {}, inputs: [] };
+    throw err;
+  }
+}
+
+function hasVscodeMcpServer(raw, name) {
+  return Object.prototype.hasOwnProperty.call(raw.servers, name);
+}
+
+function backupVscodeMcp() {
+  if (!fs.existsSync(VSCODE_MCP)) return null;
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+  const backup = `${VSCODE_MCP}.bak-${stamp}`;
+  fs.copyFileSync(VSCODE_MCP, backup);
+  return backup;
+}
+
+function appendVscodeMcpServers(names, backup = true) {
+  if (!names.length) return { changed: false, backup: null };
+  const raw = readVscodeMcp();
+  for (const name of names) raw.servers[name] = mcpJsonServer(name);
+  fs.mkdirSync(path.dirname(VSCODE_MCP), { recursive: true });
+  const backupPath = backup ? backupVscodeMcp() : null;
+  fs.writeFileSync(VSCODE_MCP, `${JSON.stringify(raw, null, 2)}\n`, 'utf8');
+  return { changed: true, backup: backupPath };
+}
+
 function addUserPath(dir) {
   fs.mkdirSync(dir, { recursive: true });
   const current = String(process.env.Path || process.env.PATH || '');
@@ -346,7 +418,7 @@ function installTool(tool) {
   return { skipped: true, reason: `unsupported installer ${tool.installer.type}` };
 }
 
-function inspectTool(tool, configText) {
+function inspectTool(tool, configText, vscodeMcpRaw) {
   const commandHits = {};
   for (const command of tool.commands || []) {
     const hit = findCommand(command);
@@ -354,6 +426,7 @@ function inspectTool(tool, configText) {
   }
   const npmInstalled = tool.npmPackage ? npmPackageInstalled(tool.npmPackage) : null;
   const mcpConfigured = tool.mcpName ? hasMcpServer(configText, tool.mcpName) : null;
+  const vscodeMcpConfigured = tool.mcpName && vscodeMcpRaw ? hasVscodeMcpServer(vscodeMcpRaw, tool.mcpName) : null;
   const prerequisites = {};
   for (const command of tool.prerequisiteCommands || []) prerequisites[command] = findCommand(command);
   let installed = false;
@@ -361,7 +434,7 @@ function inspectTool(tool, configText) {
   else if (tool.id === 'github-mcp') installed = Boolean(prerequisites.docker) && Boolean(mcpConfigured);
   else if (tool.id === 'mcp-toolbox') installed = Object.keys(commandHits).length > 0 && Boolean(mcpConfigured);
   else installed = Boolean(npmInstalled) && Boolean(mcpConfigured);
-  return { id: tool.id, title: tool.title, type: tool.type, installed, commands: commandHits, npmPackage: tool.npmPackage || null, npmInstalled, mcpName: tool.mcpName || null, mcpConfigured, prerequisites };
+  return { id: tool.id, title: tool.title, type: tool.type, installed, commands: commandHits, npmPackage: tool.npmPackage || null, npmInstalled, mcpName: tool.mcpName || null, mcpConfigured, vscodeMcpConfigured, prerequisites };
 }
 
 function main() {
@@ -369,9 +442,11 @@ function main() {
   addUserPath(USER_BIN);
   const allTools = [...TOP_DEV_TOOLS, ...SUPPORT_TOOLS];
   let configText = codexConfigText();
-  const before = allTools.map(tool => inspectTool(tool, configText));
+  let vscodeMcpRaw = readVscodeMcp();
+  const before = allTools.map(tool => inspectTool(tool, configText, vscodeMcpRaw));
   const installResults = [];
   const mcpToAdd = [];
+  const vscodeMcpToAdd = [];
 
   if (opts.apply) {
     for (const tool of allTools) {
@@ -379,6 +454,10 @@ function main() {
       if (tool.id === 'antigravity-cli' && opts.install) {
         const result = ensureAntigravityShim();
         if (!status.installed || result.changed) installResults.push({ id: tool.id, installer: tool.installer || null, result });
+      }
+      if (opts.mcpConfig && tool.type === 'mcp' && tool.mcpName && !hasVscodeMcpServer(vscodeMcpRaw, tool.mcpName)) {
+        vscodeMcpToAdd.push(tool.mcpName);
+        vscodeMcpRaw.servers[tool.mcpName] = {};
       }
       if (status.installed) continue;
       if (tool.type === 'cli' && opts.install) {
@@ -396,10 +475,12 @@ function main() {
       }
     }
     if (mcpToAdd.length) appendMcpBlocks(mcpToAdd, opts.backup);
+    if (vscodeMcpToAdd.length) appendVscodeMcpServers(vscodeMcpToAdd, opts.backup);
   }
 
   configText = codexConfigText();
-  const after = allTools.map(tool => inspectTool(tool, configText));
+  vscodeMcpRaw = readVscodeMcp();
+  const after = allTools.map(tool => inspectTool(tool, configText, vscodeMcpRaw));
   const topAfter = after.filter(item => !SUPPORT_TOOLS.some(tool => tool.id === item.id));
   const result = {
     mode: opts.apply ? 'apply' : 'dry-run',
@@ -409,6 +490,7 @@ function main() {
     supportTools: after.filter(item => SUPPORT_TOOLS.some(tool => tool.id === item.id)),
     tools: topAfter,
     plannedMcpConfigAdds: opts.apply ? [] : before.filter(item => item.type === 'mcp' && !item.mcpConfigured).map(item => item.mcpName).filter(Boolean),
+    plannedVscodeMcpConfigAdds: opts.apply ? [] : before.filter(item => item.type === 'mcp' && !item.vscodeMcpConfigured).map(item => item.mcpName).filter(Boolean),
     installResults,
   };
 
@@ -422,7 +504,7 @@ function main() {
     const mark = item.installed ? 'ok' : 'missing';
     const details = item.type === 'cli'
       ? Object.entries(item.commands).map(([name, p]) => `${name}=${p}`).join(', ')
-      : `mcp=${item.mcpConfigured ? 'configured' : 'missing'}${item.npmPackage ? `, npm=${item.npmInstalled ? 'installed' : 'missing'}` : ''}`;
+      : `mcp=${item.mcpConfigured ? 'configured' : 'missing'}, vscode=${item.vscodeMcpConfigured ? 'configured' : 'missing'}${item.npmPackage ? `, npm=${item.npmInstalled ? 'installed' : 'missing'}` : ''}`;
     console.log(`- ${mark}: ${item.title} (${item.id})${details ? ` — ${details}` : ''}`);
   }
   if (result.supportTools.length) {

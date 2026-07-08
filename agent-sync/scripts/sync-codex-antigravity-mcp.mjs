@@ -7,9 +7,10 @@ const HOME = os.homedir();
 const APPDATA = process.env.APPDATA || path.join(HOME, 'AppData', 'Roaming');
 const DEFAULT_CODEX_CONFIG = path.join(HOME, '.codex', 'config.toml');
 const DEFAULT_ANTIGRAVITY_MCP = path.join(APPDATA, 'Antigravity', 'User', 'mcp.json');
+const DEFAULT_VSCODE_MCP = path.join(APPDATA, 'Code', 'User', 'mcp.json');
 
 function usage(exitCode = 0) {
-  console.log(`Usage: node scripts/sync-codex-antigravity-mcp.mjs [options]\n\nSynchronize the union of MCP servers between Codex and Antigravity.\nDefault mode is dry-run; use --apply to write changes.\n\nOptions:\n  --apply                         Write missing MCP servers to the other app.\n  --json                          Print machine-readable summary.\n  --codex-config <path>            Override Codex config.toml path.\n  --antigravity-mcp <path>         Override Antigravity User/mcp.json path.\n  --startup-timeout <seconds>      Startup timeout for Antigravity->Codex stdio servers (default: 120).\n  --no-backup                      Do not create .bak-* files before writing.\n  --help                           Show help.\n\nDefaults:\n  Codex config:       ${DEFAULT_CODEX_CONFIG}\n  Antigravity MCP:    ${DEFAULT_ANTIGRAVITY_MCP}\n`);
+  console.log(`Usage: node scripts/sync-codex-antigravity-mcp.mjs [options]\n\nSynchronize the union of MCP servers across Codex, Antigravity, and VSCode.\nDefault mode is dry-run; use --apply to write changes.\n\nOptions:\n  --apply                         Write missing MCP servers to the other apps.\n  --json                          Print machine-readable summary.\n  --codex-config <path>            Override Codex config.toml path.\n  --antigravity-mcp <path>         Override Antigravity User/mcp.json path.\n  --vscode-mcp <path>              Override VSCode User/mcp.json path.\n  --startup-timeout <seconds>      Startup timeout for JSON->Codex stdio servers (default: 120).\n  --no-backup                      Do not create .bak-* files before writing.\n  --help                           Show help.\n\nDefaults:\n  Codex config:       ${DEFAULT_CODEX_CONFIG}\n  Antigravity MCP:    ${DEFAULT_ANTIGRAVITY_MCP}\n  VSCode MCP:         ${DEFAULT_VSCODE_MCP}\n`);
   process.exit(exitCode);
 }
 
@@ -20,6 +21,7 @@ function parseArgs(argv) {
     backup: true,
     codexConfig: DEFAULT_CODEX_CONFIG,
     antigravityMcp: DEFAULT_ANTIGRAVITY_MCP,
+    vscodeMcp: DEFAULT_VSCODE_MCP,
     startupTimeout: 120,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -34,6 +36,7 @@ function parseArgs(argv) {
     else if (a === '--no-backup') opts.backup = false;
     else if (a === '--codex-config') opts.codexConfig = next();
     else if (a === '--antigravity-mcp') opts.antigravityMcp = next();
+    else if (a === '--vscode-mcp') opts.vscodeMcp = next();
     else if (a === '--startup-timeout') opts.startupTimeout = Number(next());
     else throw new Error(`Unknown option: ${a}`);
   }
@@ -42,6 +45,7 @@ function parseArgs(argv) {
   }
   opts.codexConfig = path.resolve(expandPath(opts.codexConfig));
   opts.antigravityMcp = path.resolve(expandPath(opts.antigravityMcp));
+  opts.vscodeMcp = path.resolve(expandPath(opts.vscodeMcp));
   return opts;
 }
 
@@ -178,7 +182,7 @@ function parseCodexMcp(file) {
   return { text, servers };
 }
 
-function readAntigravityMcp(file) {
+function readJsonMcp(file) {
   const text = readTextIfExists(file);
   if (!text.trim()) return { raw: { servers: {}, inputs: [] }, servers: new Map() };
   const raw = JSON.parse(text);
@@ -292,44 +296,82 @@ function serverLine(name, server) {
 function main() {
   const opts = parseArgs(process.argv.slice(2));
   const codex = parseCodexMcp(opts.codexConfig);
-  const ag = readAntigravityMcp(opts.antigravityMcp);
+  const ag = readJsonMcp(opts.antigravityMcp);
+  const vscode = readJsonMcp(opts.vscodeMcp);
 
-  const codexNames = new Set(codex.servers.keys());
-  const agNames = new Set(ag.servers.keys());
-  const codexOnly = [...codexNames].filter(n => !agNames.has(n)).sort();
-  const antigravityOnly = [...agNames].filter(n => !codexNames.has(n)).sort();
-  const common = [...codexNames].filter(n => agNames.has(n)).sort();
-  const conflicts = common.filter(name => stable(comparableServer(codexToAntigravity(codex.servers.get(name)))) !== stable(comparableServer(ag.servers.get(name))));
+  const targets = [
+    { name: 'codex', kind: 'toml', path: opts.codexConfig, servers: codex.servers, text: codex.text, raw: null, exists: fs.existsSync(opts.codexConfig) },
+    { name: 'antigravity', kind: 'json', path: opts.antigravityMcp, servers: ag.servers, text: null, raw: ag.raw, exists: fs.existsSync(opts.antigravityMcp) },
+    { name: 'vscode', kind: 'json', path: opts.vscodeMcp, servers: vscode.servers, text: null, raw: vscode.raw, exists: fs.existsSync(opts.vscodeMcp) },
+  ];
+
+  const allNames = new Set();
+  for (const t of targets) for (const name of t.servers.keys()) allNames.add(name);
+
+  const sourcePriority = ['codex', 'antigravity', 'vscode'];
+  function findSource(name) {
+    for (const srcName of sourcePriority) {
+      const src = targets.find(t => t.name === srcName);
+      if (src && src.servers.has(name)) return src;
+    }
+    return null;
+  }
+
+  function serverToJson(name, source) {
+    const server = source.servers.get(name);
+    return source.kind === 'toml' ? codexToAntigravity(server) : comparableServer(server);
+  }
+
+  const missingByTarget = {};
+  for (const t of targets) missingByTarget[t.name] = [];
+  const conflicts = [];
+
+  for (const name of [...allNames].sort()) {
+    const presentTargets = targets.filter(t => t.servers.has(name));
+    const missingTargets = targets.filter(t => !t.servers.has(name));
+    if (presentTargets.length > 1) {
+      const norms = presentTargets.map(t => stable(serverToJson(name, t)));
+      if (new Set(norms).size > 1) conflicts.push(name);
+    }
+    for (const t of missingTargets) missingByTarget[t.name].push(name);
+  }
+
+  const totalMissing = Object.values(missingByTarget).reduce((s, v) => s + v.length, 0);
 
   const result = {
     mode: opts.apply ? 'apply' : 'dry-run',
-    paths: { codexConfig: opts.codexConfig, antigravityMcp: opts.antigravityMcp },
-    counts: { codex: codexNames.size, antigravity: agNames.size, codexOnly: codexOnly.length, antigravityOnly: antigravityOnly.length, common: common.length, conflicts: conflicts.length },
-    codexOnly,
-    antigravityOnly,
+    paths: { codexConfig: opts.codexConfig, antigravityMcp: opts.antigravityMcp, vscodeMcp: opts.vscodeMcp },
+    counts: { codex: codex.servers.size, antigravity: ag.servers.size, vscode: vscode.servers.size, union: allNames.size, conflicts: conflicts.length, totalMissing },
+    missingByTarget,
     conflicts,
     backups: {},
     changed: false,
   };
 
-  if (opts.apply && (codexOnly.length || antigravityOnly.length)) {
-    if (opts.backup) {
-      if (codexOnly.length) result.backups.antigravityMcp = backupFile(opts.antigravityMcp);
-      if (antigravityOnly.length) result.backups.codexConfig = backupFile(opts.codexConfig);
-    }
-    if (codexOnly.length) {
-      for (const name of codexOnly) ag.raw.servers[name] = codexToAntigravity(codex.servers.get(name));
-      ensureParent(opts.antigravityMcp);
-      fs.writeFileSync(opts.antigravityMcp, `${JSON.stringify(ag.raw, null, 2)}\n`, 'utf8');
-      result.changed = true;
-    }
-    if (antigravityOnly.length) {
-      ensureParent(opts.codexConfig);
-      let text = codex.text;
-      if (text && !text.endsWith('\n')) text += '\n';
-      for (const name of antigravityOnly) text += blockFromAntigravity(name, comparableServer(ag.servers.get(name)), opts.startupTimeout);
-      fs.writeFileSync(opts.codexConfig, text, 'utf8');
-      result.changed = true;
+  if (opts.apply && totalMissing > 0) {
+    for (const t of targets) {
+      const missing = missingByTarget[t.name];
+      if (!missing.length) continue;
+      if (opts.backup && t.exists) result.backups[t.name] = backupFile(t.path);
+      if (t.kind === 'json') {
+        for (const name of missing) {
+          const source = findSource(name);
+          if (source) t.raw.servers[name] = serverToJson(name, source);
+        }
+        ensureParent(t.path);
+        fs.writeFileSync(t.path, `${JSON.stringify(t.raw, null, 2)}\n`, 'utf8');
+        result.changed = true;
+      } else {
+        let text = t.text;
+        if (text && !text.endsWith('\n')) text += '\n';
+        for (const name of missing) {
+          const source = findSource(name);
+          if (source) text += blockFromAntigravity(name, serverToJson(name, source), opts.startupTimeout);
+        }
+        ensureParent(t.path);
+        fs.writeFileSync(t.path, text, 'utf8');
+        result.changed = true;
+      }
     }
   }
 
@@ -338,22 +380,26 @@ function main() {
     return;
   }
 
-  console.log(`Codex MCP servers: ${codexNames.size}`);
-  console.log(`Antigravity MCP servers: ${agNames.size}`);
-  if (!codexOnly.length && !antigravityOnly.length) console.log('Union already synced: no missing MCP servers.');
-  if (codexOnly.length) {
-    console.log(`\nCodex-only -> Antigravity (${codexOnly.length}):`);
-    for (const name of codexOnly) console.log(`  - ${serverLine(name, codexToAntigravity(codex.servers.get(name)))}`);
-  }
-  if (antigravityOnly.length) {
-    console.log(`\nAntigravity-only -> Codex (${antigravityOnly.length}):`);
-    for (const name of antigravityOnly) console.log(`  - ${serverLine(name, comparableServer(ag.servers.get(name)))}`);
+  console.log(`Codex MCP servers: ${codex.servers.size}`);
+  console.log(`Antigravity MCP servers: ${ag.servers.size}`);
+  console.log(`VSCode MCP servers: ${vscode.servers.size}`);
+  console.log(`Union MCP servers: ${allNames.size}`);
+  if (totalMissing === 0) console.log('Union already synced: no missing MCP servers.');
+  for (const t of targets) {
+    const missing = missingByTarget[t.name];
+    if (!missing.length) continue;
+    console.log(`\nMissing from ${t.name} (${missing.length}):`);
+    for (const name of missing) {
+      const source = findSource(name);
+      const jsonServer = source ? serverToJson(name, source) : null;
+      console.log(`  - ${name} (from ${source ? source.name : '?'})${jsonServer ? `: ${serverLine(name, jsonServer)}` : ''}`);
+    }
   }
   if (conflicts.length) {
     console.log(`\nSame-name differences not overwritten (${conflicts.length}): ${conflicts.join(', ')}`);
     console.log('Review these manually if you want one side to replace the other.');
   }
-  if (!opts.apply && (codexOnly.length || antigravityOnly.length)) console.log('\nDry-run only. Re-run with --apply to write changes.');
+  if (!opts.apply && totalMissing > 0) console.log('\nDry-run only. Re-run with --apply to write changes.');
   if (opts.apply) {
     console.log(result.changed ? '\nApplied MCP union sync.' : '\nNo changes needed.');
     for (const [label, backup] of Object.entries(result.backups)) if (backup) console.log(`Backup ${label}: ${backup}`);

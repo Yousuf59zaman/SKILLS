@@ -13,15 +13,15 @@ const SCRIPTS = {
 
 const COMMON_FLAGS = new Set(['--apply', '--json']);
 const SKILLS_FLAGS = new Set(['--create-missing-roots', '--include-dot', '--no-content-sync', '--allow-ambiguous-latest', '--no-github-check', '--push-github', '--github-direct-push']);
-const SKILLS_VALUE = new Set(['--max-depth', '--mtime-tolerance-ms', '--codex-root', '--claude-root', '--antigravity-root', '--root', '--github-decision', '--github-repo', '--github-worktree', '--github-source', '--github-branch', '--github-branch-prefix']);
+const SKILLS_VALUE = new Set(['--max-depth', '--mtime-tolerance-ms', '--codex-root', '--claude-root', '--antigravity-root', '--vscode-root', '--root', '--github-decision', '--github-repo', '--github-worktree', '--github-source', '--github-branch', '--github-branch-prefix']);
 const TOOLS_FLAGS = new Set(['--no-install', '--no-mcp-config']);
-const MCP_ONLY_VALUE = new Set(['--antigravity-mcp', '--startup-timeout']);
-const CLI_ONLY_VALUE = new Set(['--antigravity-settings', '--cli', '--path']);
+const MCP_ONLY_VALUE = new Set(['--antigravity-mcp', '--vscode-mcp', '--startup-timeout']);
+const CLI_ONLY_VALUE = new Set(['--antigravity-settings', '--vscode-settings', '--cli', '--path']);
 const MCP_CLI_FLAGS = new Set(['--no-backup']);
 const MCP_CLI_VALUE = new Set(['--codex-config']);
 
 function usage(exitCode = 0) {
-  console.log(`Usage: node scripts/agent-sync.mjs [skills|tools|mcp|cli|all] [options]\n\nModes:\n  skills   Sync AgentSkill folders across Codex, Claude, and Antigravity.\n  tools    Check/install the top 20 developer MCP/CLI tools and safe Codex MCP blocks.\n  mcp      Sync MCP server definitions between Codex and Antigravity.\n  cli      Sync CLI PATH access between Codex and Antigravity terminals.\n  all      Run skills sync, tools check, MCP sync, then CLI sync. Default mode.\n\nExamples:\n  node scripts/agent-sync.mjs all\n  node scripts/agent-sync.mjs all --apply --create-missing-roots\n  node scripts/agent-sync.mjs skills --apply --create-missing-roots\n  node scripts/agent-sync.mjs tools --apply\n  node scripts/agent-sync.mjs mcp --apply\n  node scripts/agent-sync.mjs cli --apply\n\nOptions are forwarded to the matching underlying script. In all mode, shared flags\n(--apply, --json) go to every script; skill-only flags go to skills; tools-only\nflags go to tools; MCP/CLI shared flags go to MCP + CLI; mode-specific flags go\nonly to their mode.`);
+  console.log(`Usage: node scripts/agent-sync.mjs [skills|tools|mcp|cli|all] [options]\n\nModes:\n  skills   Sync AgentSkill folders across Codex, Claude, Antigravity, and VSCode.\n  tools    Check/install the top 20 developer MCP/CLI tools and safe Codex + VSCode MCP blocks.\n  mcp      Sync MCP server definitions across Codex, Antigravity, and VSCode.\n  cli      Sync CLI PATH access across Codex, Antigravity, and VSCode terminals.\n  all      Run skills sync, tools check, MCP sync, then CLI sync. Default mode.\n\nExamples:\n  node scripts/agent-sync.mjs all\n  node scripts/agent-sync.mjs all --apply --create-missing-roots\n  node scripts/agent-sync.mjs skills --apply --create-missing-roots\n  node scripts/agent-sync.mjs tools --apply\n  node scripts/agent-sync.mjs mcp --apply\n  node scripts/agent-sync.mjs cli --apply\n\nOptions are forwarded to the matching underlying script. In all mode, shared flags\n(--apply, --json) go to every script; skill-only flags go to skills; tools-only\nflags go to tools; MCP/CLI shared flags go to MCP + CLI; mode-specific flags go\nonly to their mode.`);
   process.exit(exitCode);
 }
 
