@@ -1,0 +1,4 @@
+interface:
+  display_name: "Rotate OpenCode Go Auth Profiles"
+  short_description: "Default-first OpenCode Go profile rotation"
+  default_prompt: "Use $rotate-opencode-go-auth-profiles to audit and repair default-first auth profile rotation."

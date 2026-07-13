@@ -8,6 +8,7 @@ const HOME = os.homedir();
 const APPDATA = process.env.APPDATA || path.join(HOME, 'AppData', 'Roaming');
 const LOCALAPPDATA = process.env.LOCALAPPDATA || path.join(HOME, 'AppData', 'Local');
 const CODEX_CONFIG = path.join(HOME, '.codex', 'config.toml');
+const OPENCLAW_CONFIG = path.join(HOME, '.openclaw', 'openclaw.json');
 
 const STOPWORDS = new Set([
   'the', 'and', 'for', 'with', 'that', 'this', 'file', 'files', 'from', 'into',
@@ -20,12 +21,32 @@ const COMMAND_TOKEN_STOPWORDS = new Set([
   ...STOPWORDS,
   'add', 'all', 'app', 'ask', 'build', 'check', 'clean', 'create', 'debug',
   'delete', 'deploy', 'do', 'docs', 'edit', 'error', 'find', 'fix', 'get',
+  'example', 'examples',
   'help', 'install', 'list', 'make', 'open', 'pull', 'push', 'read', 'remove',
-  'run', 'search', 'setup', 'show', 'start', 'status', 'sync', 'test', 'tool',
+  'run', 'script', 'scripts', 'search', 'setup', 'show', 'start', 'status', 'sync', 'test', 'tool',
   'update', 'verify', 'write',
+  'ci', 'current', 'latest', 'log', 'logs', 'production', 'topic', 'wise', 'workspace',
 ]);
 
 const TOOLS = [
+  {
+    id: 'filesystem',
+    type: 'mcp',
+    label: 'Filesystem MCP',
+    mcpName: 'filesystem',
+    keywords: ['filesystem', 'workspace', 'directory', 'folder', 'path', 'local', 'read', 'write', 'tree', 'list', 'memory'],
+    use: 'Read, list, and inspect configured local filesystem roots through MCP when a session-aware file tool is available.',
+    safeFirst: 'List/read/stat/search only; avoid writes or cleanup unless explicitly requested.',
+  },
+  {
+    id: 'memory',
+    type: 'mcp',
+    label: 'Memory MCP',
+    mcpName: 'memory',
+    keywords: ['memory', 'knowledge', 'graph', 'notes', 'remember', 'recall', 'entity', 'relation'],
+    use: 'Read or update the configured MCP memory graph when the task needs persistent agent memory.',
+    safeFirst: 'Search/read memory first; write memory only when the user clearly asks to remember/update.',
+  },
   {
     id: 'chrome_devtools',
     type: 'mcp',
@@ -72,6 +93,15 @@ const TOOLS = [
     safeFirst: 'Fetch/read public pages only.',
   },
   {
+    id: 'brave-search',
+    type: 'mcp',
+    label: 'Brave Search MCP',
+    mcpName: 'brave-search',
+    keywords: ['brave', 'search', 'web', 'current', 'latest', 'news', 'lookup', 'internet'],
+    use: 'Search the public web through OpenClaw MCP when current external information is needed.',
+    safeFirst: 'Search/read public results only.',
+  },
+  {
     id: 'sentry',
     type: 'mcp',
     label: 'Sentry MCP',
@@ -88,6 +118,24 @@ const TOOLS = [
     keywords: ['database', 'db', 'sql', 'sqlite', 'query', 'schema', 'table', 'row', 'migration'],
     use: 'Inspect SQL databases through MCP, configured safely for local SQLite by default.',
     safeFirst: 'Read schema/list tables/select only.',
+  },
+  {
+    id: 'postgres',
+    type: 'mcp',
+    label: 'Postgres MCP',
+    mcpName: 'postgres',
+    keywords: ['postgres', 'postgresql', 'database', 'db', 'sql', 'query', 'schema', 'table', 'row', 'migration'],
+    use: 'Inspect configured Postgres databases through MCP when SQL context is required.',
+    safeFirst: 'Read schema/list tables/select only; never migrate or write without explicit request.',
+  },
+  {
+    id: 'notion',
+    type: 'mcp',
+    label: 'Notion MCP',
+    mcpName: 'notion',
+    keywords: ['notion', 'page', 'database', 'docs', 'workspace', 'notes'],
+    use: 'Read or manage Notion pages/databases when configured and relevant.',
+    safeFirst: 'Read/search first; avoid page/database edits unless explicitly requested.',
   },
   {
     id: 'git',
@@ -124,6 +172,15 @@ const TOOLS = [
     keywords: ['json', 'filter', 'parse', 'transform', 'format', 'extract'],
     use: 'Filter, validate, and transform JSON.',
     safeFirst: '`jq . file.json`.',
+  },
+  {
+    id: 'powershell',
+    type: 'cli',
+    label: 'PowerShell',
+    commands: ['pwsh', 'powershell'],
+    keywords: ['powershell', 'pwsh', 'windows', 'filesystem', 'directory', 'folder', 'path', 'process', 'service', 'registry', 'get-childitem'],
+    use: 'Run deterministic Windows inspection and automation commands.',
+    safeFirst: '`Get-ChildItem`, `Get-Content`, `Get-Process`, and other read-only inspection first.',
   },
   {
     id: 'pnpm',
@@ -354,7 +411,11 @@ function readConfig() {
   try { return fs.readFileSync(CODEX_CONFIG, 'utf8'); } catch { return ''; }
 }
 
-function configuredMcpNames(text) {
+function readOpenClawConfig() {
+  try { return JSON.parse(fs.readFileSync(OPENCLAW_CONFIG, 'utf8')); } catch { return null; }
+}
+
+function configuredCodexMcpNames(text) {
   const names = new Set();
   const re = /^\s*\[mcp_servers\.(?:"([^"]+)"|'([^']+)'|([^\]\s]+))]\s*$/gm;
   let match;
@@ -362,6 +423,29 @@ function configuredMcpNames(text) {
     const name = match[1] || match[2] || match[3];
     if (!name || name.endsWith('.env')) continue;
     names.add(name);
+  }
+  return names;
+}
+
+function configuredOpenClawMcpNames(config) {
+  const names = new Set();
+  const servers = config?.mcp?.servers || {};
+  for (const name of Object.keys(servers)) {
+    if (name) names.add(name);
+  }
+  return names;
+}
+
+function configuredMcpNames() {
+  const rawNames = [
+    ...configuredCodexMcpNames(readConfig()),
+    ...configuredOpenClawMcpNames(readOpenClawConfig()),
+  ];
+  const names = new Set();
+  for (const name of rawNames) {
+    names.add(name);
+    if (name.includes('-')) names.add(name.replaceAll('-', '_'));
+    if (name.includes('_')) names.add(name.replaceAll('_', '-'));
   }
   return names;
 }
@@ -449,6 +533,7 @@ function tokens(text) {
 }
 
 function scoreTool(tool, query) {
+  const lowerQuery = query.toLowerCase();
   const queryTokens = tokens(query);
   const commandNames = Array.isArray(tool.commands) ? tool.commands : Object.keys(tool.commands || {});
   const haystack = [
@@ -474,7 +559,25 @@ function scoreTool(tool, query) {
     }
   }
   for (const name of [tool.id, tool.mcpName, ...commandNames].filter(Boolean)) {
-    if (query.toLowerCase().includes(String(name).toLowerCase())) score += 30;
+    if (lowerQuery.includes(String(name).toLowerCase())) score += 30;
+  }
+  if (tool.id === 'filesystem' && /\b(memory\s+files?|files?|directories|directory|folders?|workspace)\b/.test(lowerQuery)) {
+    score += 35;
+  }
+  if (tool.id === 'memory' && /\bmemory\s+files?\b/.test(lowerQuery)) {
+    score -= 35;
+  }
+  if (tool.id === 'playwright' && /\b(browser|youtube|click|open|navigate|goto|go to|search|form|play)\b/.test(lowerQuery)) {
+    score += 40;
+  }
+  if (tool.id === 'chrome_devtools' && /\b(console|network|dom|hydration|performance|frontend|localhost)\b/.test(lowerQuery) && !/\b(database|db|sql|schema|table)\b/.test(lowerQuery)) {
+    score += 45;
+  }
+  if (tool.id === 'context7' && /\b(docs?|documentation|api|library|framework|react|vue|nuxt|laravel|example)\b/.test(lowerQuery)) {
+    score += 35;
+  }
+  if (tool.id === 'rg' && /\b(youtube|browser|webpage|website)\b/.test(lowerQuery) && !/\b(repo|code|file|files|symbol|reference|todo)\b/.test(lowerQuery)) {
+    score -= 25;
   }
   return { score, matched: [...new Set(matched)].sort() };
 }
@@ -486,8 +589,7 @@ function confidence(score) {
 }
 
 function inspectTools(cwd = process.cwd()) {
-  const configText = readConfig();
-  const mcpNames = configuredMcpNames(configText);
+  const mcpNames = configuredMcpNames();
   const rows = TOOLS.map(tool => {
     const commandHits = {};
     for (const command of toolCommandNames(tool)) {
@@ -552,6 +654,7 @@ function markdownCatalog(rows) {
     '',
     `Generated: ${new Date().toISOString()}`,
     `Codex config: \`${CODEX_CONFIG}\``,
+    `OpenClaw config: \`${OPENCLAW_CONFIG}\``,
     '',
     'Use this catalog for routing only. Prefer read-only inspection before write actions.',
     '',

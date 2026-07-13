@@ -1,0 +1,4 @@
+interface:
+  display_name: "Setup Windows AltSnap Resizer"
+  short_description: "Install and verify the AltSnap resizer"
+  default_prompt: "Use $setup-windows-altsnap-resizer to install or repair AltSnap window resizing on Windows."

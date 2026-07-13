@@ -1,0 +1,4 @@
+interface:
+  display_name: "Persist OpenClaw Gateway"
+  short_description: "Keep OpenClaw gateway terminals persistent"
+  default_prompt: "Use $persist-openclaw-gateway to repair and verify persistent gateway, monitor, and live-log terminals."

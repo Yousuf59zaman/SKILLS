@@ -1,0 +1,4 @@
+interface:
+  display_name: "Setup OpenClaw OpenCode Go"
+  short_description: "Direct OpenCode Go setup for OpenClaw"
+  default_prompt: "Use $setup-openclaw-opencode-go to audit and repair direct OpenCode Go for my three user agents."

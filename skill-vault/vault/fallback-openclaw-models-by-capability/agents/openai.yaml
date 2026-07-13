@@ -1,0 +1,4 @@
+interface:
+  display_name: "Capability-Safe OpenClaw Fallbacks"
+  short_description: "Keep OpenClaw fallbacks capability-safe"
+  default_prompt: "Use $fallback-openclaw-models-by-capability to audit and repair capability-compatible model fallbacks."

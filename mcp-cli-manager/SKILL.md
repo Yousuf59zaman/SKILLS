@@ -16,7 +16,7 @@ Use this as a quiet router for local MCP servers and CLI commands. Its job is to
 node "$SKILL_DIR/scripts/catalog-mcp-cli.mjs" --query "<user task>"
 ```
 
-The script combines the maintained known-tool list with dynamic discovery. It includes configured Codex MCP servers even when they are not in the known list, detects exact CLI command names mentioned in the task when they exist on PATH, and detects package scripts from the current repo via `--cwd <path>`.
+The script combines the maintained known-tool list with dynamic discovery. It includes configured Codex and OpenClaw MCP servers even when they are not in the known list, detects exact CLI command names mentioned in the task when they exist on PATH, and detects package scripts from the current repo via `--cwd <path>`.
 
 If the catalog may be stale, regenerate it first:
 
@@ -35,6 +35,7 @@ node "$SKILL_DIR/scripts/catalog-mcp-cli.mjs" --write "$SKILL_DIR/references/too
 - Prefer the repo's own scripts and lockfile package manager before global tools.
 - Prefer exact local evidence over assumptions: inspect files, run narrow searches, run targeted tests, then broaden only when needed.
 - Prefer dry-run/status/list/validate commands before commands that write, deploy, delete, migrate, or change auth.
+- For read-only inspection tasks, do not create helper scripts or temporary files just to run a check. Use inline shell commands, MCP read/list calls, or existing project scripts.
 
 ## Safety Rules
 
@@ -44,6 +45,7 @@ node "$SKILL_DIR/scripts/catalog-mcp-cli.mjs" --write "$SKILL_DIR/references/too
 - Treat MCP servers as access channels, not permission grants. Keep normal file, git, network, and approval discipline.
 - For GitHub, Sentry, Vercel, Supabase, Kubernetes, Terraform, and Docker operations, start with read-only status/list/plan commands unless the user clearly requested an apply/deploy/change.
 - For Chrome/DevTools/browser tools, interact only with pages relevant to the task.
+- If the user asks for a read/list/check-only result, avoid `write`/edit tools entirely unless the user explicitly approves creating an artifact.
 - If a tool is missing or unauthenticated, either use the best safe fallback or state the missing auth/tool briefly.
 
 ## Common Routing

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bypass OpenCode Go Cooldown"
+  short_description: "Prevent OpenCode Go provider self-cooldown"
+  default_prompt: "Use $bypass-opencode-go-cooldown to audit and repair OpenCode Go cooldown bypass behavior."

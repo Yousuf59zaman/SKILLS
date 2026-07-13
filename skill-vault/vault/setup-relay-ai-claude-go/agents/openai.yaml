@@ -1,0 +1,4 @@
+interface:
+  display_name: "Relay AI Claude Go Setup"
+  short_description: "Set up Relay AI, Claude Desktop, and OpenCode Go"
+  default_prompt: "Use $setup-relay-ai-claude-go to install, repair, and verify Relay AI with Claude Desktop and OpenCode Go on Windows."

@@ -186,10 +186,19 @@ function parseCodexMcp(file) {
   return { text, servers };
 }
 
+function stripJsoncAndTrailingCommas(text) {
+  // First strip comments (// and /* */)
+  let cleaned = stripJsoncComments(text);
+  // Then remove trailing commas before } or ]
+  cleaned = cleaned.replace(/,\s*([}\]])/g, '$1');
+  return cleaned;
+}
+
 function readJsonMcp(file) {
   const text = readTextIfExists(file);
   if (!text.trim()) return { raw: { servers: {}, inputs: [] }, servers: new Map() };
-  const raw = JSON.parse(text);
+  const cleaned = stripJsoncAndTrailingCommas(text);
+  const raw = JSON.parse(cleaned);
   if (!raw.servers || typeof raw.servers !== 'object') raw.servers = {};
   if (!Array.isArray(raw.inputs)) raw.inputs = [];
   return { raw, servers: new Map(Object.entries(raw.servers)) };

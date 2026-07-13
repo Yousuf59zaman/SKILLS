@@ -1,0 +1,4 @@
+interface:
+  display_name: "Skill Vault"
+  short_description: "Route tasks to nested private skills"
+  default_prompt: "Use $skill-vault to choose and run the matching nested skill for this task."

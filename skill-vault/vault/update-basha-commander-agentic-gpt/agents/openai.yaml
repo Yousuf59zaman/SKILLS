@@ -1,0 +1,4 @@
+interface:
+  display_name: "Basha Commander Agentic GPT"
+  short_description: "Update Basha Commander with agentic bridge behavior"
+  default_prompt: "Use $update-basha-commander-agentic-gpt to update, save, and smoke-test the Basha Commander Custom GPT."

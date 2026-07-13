@@ -1,7 +1,8 @@
 # MCP/CLI Tool Catalog
 
-Generated: 2026-06-28T16:18:00+06:00
+Generated: 2026-06-28T18:38:58.003Z
 Codex config: `C:\Users\User\.codex\config.toml`
+OpenClaw config: `C:\Users\User\.openclaw\openclaw.json`
 
 Use this catalog for routing only. Prefer read-only inspection before write actions.
 
@@ -9,6 +10,12 @@ Codex Desktop / Relay AI rule: Browser, Chrome, and node_repl are deferred plugi
 
 ## MCP Tools
 
+- **ok** Filesystem MCP (mcp: `filesystem`)
+  - Use: Read, list, and inspect configured local filesystem roots through MCP when a session-aware file tool is available.
+  - Safe first: List/read/stat/search only; avoid writes or cleanup unless explicitly requested.
+- **ok** Memory MCP (mcp: `memory`)
+  - Use: Read or update the configured MCP memory graph when the task needs persistent agent memory.
+  - Safe first: Search/read memory first; write memory only when the user clearly asks to remember/update.
 - **ok** Chrome DevTools MCP (mcp: `chrome_devtools`)
   - Use: Inspect live Chrome pages, console/network errors, DOM, performance, and local frontend behavior.
   - Safe first: Inspect, screenshot, console/network readout.
@@ -24,22 +31,70 @@ Codex Desktop / Relay AI rule: Browser, Chrome, and node_repl are deferred plugi
 - **ok** Firecrawl MCP (mcp: `firecrawl`)
   - Use: Extract structured content from websites when normal browsing/search is not enough.
   - Safe first: Fetch/read public pages only.
+- **ok** Brave Search MCP (mcp: `brave-search`)
+  - Use: Search the public web through OpenClaw MCP when current external information is needed.
+  - Safe first: Search/read public results only.
 - **ok** Sentry MCP (mcp: `sentry`)
   - Use: Investigate Sentry issues, stack traces, releases, and production errors.
   - Safe first: Read issue details first. Requires Sentry auth for private projects.
 - **ok** MCP Toolbox (mcp: `mcp_toolbox`)
   - Use: Inspect SQL databases through MCP, configured safely for local SQLite by default.
   - Safe first: Read schema/list tables/select only.
+- **ok** Postgres MCP (mcp: `postgres`)
+  - Use: Inspect configured Postgres databases through MCP when SQL context is required.
+  - Safe first: Read schema/list tables/select only; never migrate or write without explicit request.
+- **ok** Notion MCP (mcp: `notion`)
+  - Use: Read or manage Notion pages/databases when configured and relevant.
+  - Safe first: Read/search first; avoid page/database edits unless explicitly requested.
+- **ok** brave_search MCP (mcp: `brave_search`)
+  - Use: Configured MCP server named "brave_search". Inspect its available tools/resources before using it.
+  - Safe first: List/read/status operations first; avoid write actions unless explicitly requested.
+- **ok** chrome-devtools MCP (mcp: `chrome-devtools`)
+  - Use: Configured MCP server named "chrome-devtools". Inspect its available tools/resources before using it.
+  - Safe first: List/read/status operations first; avoid write actions unless explicitly requested.
+- **ok** figma-desktop MCP (mcp: `figma-desktop`)
+  - Use: Configured MCP server named "figma-desktop". Inspect its available tools/resources before using it.
+  - Safe first: List/read/status operations first; avoid write actions unless explicitly requested.
+- **ok** figma_desktop MCP (mcp: `figma_desktop`)
+  - Use: Configured MCP server named "figma_desktop". Inspect its available tools/resources before using it.
+  - Safe first: List/read/status operations first; avoid write actions unless explicitly requested.
+- **ok** gemini MCP (mcp: `gemini`)
+  - Use: Configured MCP server named "gemini". Inspect its available tools/resources before using it.
+  - Safe first: List/read/status operations first; avoid write actions unless explicitly requested.
+- **ok** google-maps MCP (mcp: `google-maps`)
+  - Use: Configured MCP server named "google-maps". Inspect its available tools/resources before using it.
+  - Safe first: List/read/status operations first; avoid write actions unless explicitly requested.
+- **ok** google-stitch MCP (mcp: `google-stitch`)
+  - Use: Configured MCP server named "google-stitch". Inspect its available tools/resources before using it.
+  - Safe first: List/read/status operations first; avoid write actions unless explicitly requested.
+- **ok** google_maps MCP (mcp: `google_maps`)
+  - Use: Configured MCP server named "google_maps". Inspect its available tools/resources before using it.
+  - Safe first: List/read/status operations first; avoid write actions unless explicitly requested.
+- **ok** google_stitch MCP (mcp: `google_stitch`)
+  - Use: Configured MCP server named "google_stitch". Inspect its available tools/resources before using it.
+  - Safe first: List/read/status operations first; avoid write actions unless explicitly requested.
+- **ok** mcp-toolbox MCP (mcp: `mcp-toolbox`)
+  - Use: Configured MCP server named "mcp-toolbox". Inspect its available tools/resources before using it.
+  - Safe first: List/read/status operations first; avoid write actions unless explicitly requested.
+- **ok** node-repl MCP (mcp: `node-repl`)
+  - Use: Configured MCP server named "node-repl". Inspect its available tools/resources before using it.
+  - Safe first: List/read/status operations first; avoid write actions unless explicitly requested.
 - **ok** node_repl MCP (mcp: `node_repl`)
   - Use: Browser/Chrome automation helper and JavaScript execution kernel for Codex plugin sessions. Discover the callable `js` tool via `tool_search` before claiming it is missing.
   - Safe first: inspect current page/session state before clicking/typing; avoid write actions unless explicitly requested.
+- **ok** notebooklm MCP (mcp: `notebooklm`)
+  - Use: Configured MCP server named "notebooklm". Inspect its available tools/resources before using it.
+  - Safe first: List/read/status operations first; avoid write actions unless explicitly requested.
+- **ok** zapier MCP (mcp: `zapier`)
+  - Use: Configured MCP server named "zapier". Inspect its available tools/resources before using it.
+  - Safe first: List/read/status operations first; avoid write actions unless explicitly requested.
 
 ## CLI Tools
 
 - **ok** Git (commands: `git`)
   - Use: Inspect repo state, diffs, history, branches, and commits.
   - Safe first: `git status`, `git diff`, `git log`.
-- **ok** GitHub CLI (commands: `gh`)
+- **missing** GitHub CLI (commands: none)
   - Use: GitHub operations from CLI when MCP is unavailable or CLI is more direct.
   - Safe first: `gh auth status`, `gh repo view`, `gh pr view`, `gh issue view`.
 - **ok** ripgrep (commands: `rg`)
@@ -48,6 +103,9 @@ Codex Desktop / Relay AI rule: Browser, Chrome, and node_repl are deferred plugi
 - **ok** jq (commands: `jq`)
   - Use: Filter, validate, and transform JSON.
   - Safe first: `jq . file.json`.
+- **ok** PowerShell (commands: `pwsh`, `powershell`)
+  - Use: Run deterministic Windows inspection and automation commands.
+  - Safe first: `Get-ChildItem`, `Get-Content`, `Get-Process`, and other read-only inspection first.
 - **ok** pnpm (commands: `pnpm`)
   - Use: Node package, build, test, and dev-server workflows when repo uses pnpm.
   - Safe first: `pnpm --version`, `pnpm test`, `pnpm lint`, repo scripts.
