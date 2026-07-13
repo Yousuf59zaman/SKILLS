@@ -1,0 +1,4 @@
+interface:
+  display_name: "Office Commander GPT"
+  short_description: "Build and verify the Office Commander bridge"
+  default_prompt: "Use $setup-office-commander-gpt to build or repair the private Office Commander Custom GPT and verify its local integrations."
