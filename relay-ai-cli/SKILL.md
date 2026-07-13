@@ -1,16 +1,16 @@
 ---
 name: relay-ai-cli
 description: "Launch Claude Code and OpenAI Codex against your AI provider registry. Use for alef-agent, multi-model agent workflows, NDJSON stream-json, and non-interactive codex exec --json."
-version: "0.3.5"
+version: "0.4.0"
 type: tool
 status: approved
 ---
 
-# relay-ai CLI Reference (v0.3.5)
+# relay-ai CLI Reference (v0.4.0)
 
 
 ================================================================================
-RELAY-AI — AI AGENT REFERENCE (v0.3.5)
+RELAY-AI — AI AGENT REFERENCE (v0.4.0)
 ================================================================================
 
 relay-ai launches Claude Code, OpenAI Codex, Google Gemini CLI, and desktop apps
@@ -18,7 +18,7 @@ against YOUR provider registry (Groq, Mistral, OpenAI, Zen/Go, Ollama, custom en
 It handles API translation, local proxies, env isolation, and model routing.
 
 SKILL VERSIONING
-  The installed skill version matches relay-ai --version (currently v0.3.5).
+  The installed skill version matches relay-ai --version (currently v0.4.0).
   After upgrading relay-ai, run:
     relay-ai --ai --install
   Installs are skipped when the skill is already at the current version.
@@ -242,7 +242,7 @@ API GATEWAY (for tools that speak Anthropic/OpenAI HTTP)
   relay-ai server --vertex        Vertex AI gateway (gcloud ADC)
 
 DESKTOP APPS
-  relay-ai codex-app              Codex desktop (macOS/Windows)
+  relay-ai codex-app              ChatGPT desktop, Codex mode (macOS/Windows); alias: chatgpt
   relay-ai claude-app             Claude desktop (macOS/Windows)
 
 ================================================================================
@@ -405,10 +405,58 @@ Config:     C:\Users\This pc\.relay-ai\config.json
 Providers:  C:\Users\This pc\.relay-ai\providers.json
 
 Saved preferences:
-  (none — run an interactive launch first or pass --provider / --model)
+  Codex last launch:  provider=go model=qwen3.7-plus
 
 Registry providers (enabled):
-  No registry providers configured. Built-in cloud: zen, go (OpenCode Zen/Go).
+  OpenCode Zen (zen) — 28 cached model(s)
+    claude-fable-5
+    claude-opus-4-8
+    claude-opus-4-7
+    claude-opus-4-6
+    claude-opus-4-5
+    claude-opus-4-1
+    claude-sonnet-4-6
+    claude-sonnet-4-5
+    claude-sonnet-4
+    claude-haiku-4-5
+    grok-build-0.1
+    deepseek-v4-pro
+    deepseek-v4-flash
+    glm-5.2
+    glm-5.1
+    glm-5
+    minimax-m2.7
+    minimax-m2.5
+    kimi-k2.6
+    kimi-k2.5
+    qwen3.6-plus
+    qwen3.5-plus
+    big-pickle
+    deepseek-v4-flash-free
+    mimo-v2.5-free
+    minimax-m3-free
+    nemotron-3-ultra-free
+    north-mini-code-free
+
+  OpenCode Go (go) — 18 cached model(s)
+    minimax-m3
+    minimax-m2.7
+    minimax-m2.5
+    kimi-k2.7-code
+    kimi-k2.6
+    kimi-k2.5
+    glm-5.2
+    glm-5.1
+    glm-5
+    deepseek-v4-pro
+    deepseek-v4-flash
+    qwen3.7-max
+    qwen3.7-plus
+    qwen3.6-plus
+    qwen3.5-plus
+    mimo-v2.5-pro
+    mimo-v2.5
+    hy3-preview
 
 Built-in cloud providers (always available when OPENCODE_API_KEY is set):
   zen  — OpenCode Zen (free + paid models)

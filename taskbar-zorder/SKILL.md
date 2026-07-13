@@ -1,104 +1,116 @@
 ---
 name: taskbar-zorder
-description: Diagnose and control Windows taskbar Z-order using Win32 HWND operations. Use when Yousuf asks to make normal desktop app windows appear above or overlap the Windows taskbar/footer, keep the taskbar behind apps after switching windows, inspect Shell_TrayWnd topmost state, restore taskbar ordering, or explain/fix Windows Explorer taskbar Z-order behavior.
+description: Diagnose and control Windows taskbar Z-order with Win32 HWND operations, including a hidden always-running watcher and current-user logon autostart. Use when Yousuf asks to let normal desktop apps cover the taskbar/footer, keep the taskbar behind apps after switching windows, inspect Shell_TrayWnd topmost state, install or repair invisible startup persistence, prevent duplicate watchers, restore taskbar ordering, or explain/fix Explorer taskbar Z-order behavior.
 ---
 
 # Taskbar Z-Order
 
-Use this skill for Windows 10/11 taskbar ordering problems where normal desktop apps should visually cover the taskbar/footer. Prefer the bundled PowerShell script instead of rewriting Win32 interop.
-
-Bundled script:
+Use the bundled scripts for Windows 10/11 taskbar ordering. Do not rewrite the Win32 interop or Scheduled Task setup ad hoc.
 
 ```powershell
 $skill = "$env:USERPROFILE\.codex\skills\taskbar-zorder"
-powershell -NoProfile -ExecutionPolicy Bypass -File "$skill\scripts\taskbar-zorder.ps1" -Mode Status
+$zorder = "$skill\scripts\taskbar-zorder.ps1"
+$autostart = "$skill\scripts\taskbar-zorder-autostart.ps1"
 ```
 
 ## Safety
 
-- Treat this as an unsupported Explorer/window-manager tweak, not a registry policy.
-- Do not patch Explorer, inject DLLs, or modify shell binaries unless explicitly asked.
-- Always provide a restore command after starting a persistent watcher.
-- If a watcher is started in the background, report its PID.
-- Restarts of `explorer.exe`, sign-out, or reboot can reset the taskbar state.
+- Treat this as an unsupported live Explorer/window-manager tweak, not a registry policy.
+- Do not patch Explorer, inject DLLs, modify shell binaries, or create a machine-start task.
+- Use a current-user logon trigger because the taskbar HWND exists only in an interactive user session.
+- Install autostart only when the user explicitly wants persistent or startup behavior.
+- Always report the Scheduled Task name, watcher PID, and rollback commands.
+- Verify restoration. On some Windows 11 sessions, `RestoreTaskbar` reports success while `WS_EX_TOPMOST` remains cleared; restarting Explorer is the reliable fallback and can close File Explorer windows.
 
-## Modes
+## Live modes
 
-`Status` reports `Shell_TrayWnd` and `Shell_SecondaryTrayWnd` HWNDs, process, PID, `WS_EX_TOPMOST`, extended style, and rectangle.
+Run the script directly in the current PowerShell host:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codex\skills\taskbar-zorder\scripts\taskbar-zorder.ps1" -Mode Status
+& $zorder -Mode Status
+& $zorder -Mode DemoteTaskbar
+& $zorder -Mode LowerTaskbar
+& $zorder -Mode KeepTaskbarLowered -IntervalMs 50
+& $zorder -Mode RestoreTaskbar
+& $zorder -Mode PinForeground
 ```
 
-`DemoteTaskbar` removes taskbar topmost state once with `HWND_NOTOPMOST`.
+- `Status` reports taskbar HWNDs, process, PID, visibility, `WS_EX_TOPMOST`, extended style, and rectangle.
+- `DemoteTaskbar` removes topmost state once.
+- `LowerTaskbar` removes topmost state and moves taskbar HWNDs to `HWND_BOTTOM` once.
+- `KeepTaskbarLowered` repeats lowering; use 50 ms when Explorer restacks the taskbar after app switching.
+- `RestoreTaskbar` requests topmost state.
+- `PinForeground` makes the current foreground window topmost; it does not solve Explorer restacking globally.
+
+## Hidden always-on autostart
+
+Prefer the autostart installer over Startup-folder VBS files or a manually detached process:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codex\skills\taskbar-zorder\scripts\taskbar-zorder.ps1" -Mode DemoteTaskbar
+& $autostart -Mode Install -IntervalMs 50
+& $autostart -Mode Status
 ```
 
-`LowerTaskbar` removes topmost state and moves the taskbar to `HWND_BOTTOM` once. Use this before persistent mode to verify the current session can be changed.
+`Install` creates or repairs the current-user Scheduled Task `Taskbar Z-Order Watcher`, stops duplicate manual watchers, and starts one hidden instance immediately. The task must use:
+
+- current-user logon trigger;
+- hidden, non-interactive PowerShell;
+- `KeepTaskbarLowered -IntervalMs 50`;
+- unlimited execution time;
+- `IgnoreNew` multiple-instance policy;
+- battery-safe continuous operation;
+- restart on failure every minute.
+
+Do not use an `AtStartup` trigger: it runs outside the interactive desktop and cannot manage the signed-in user's taskbar.
+
+Verify after installation:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codex\skills\taskbar-zorder\scripts\taskbar-zorder.ps1" -Mode LowerTaskbar
+& $autostart -Mode Status | Format-List *
 ```
 
-`KeepTaskbarLowered` repeatedly keeps the taskbar non-topmost and at the bottom of the Z-order. Use this for the common issue where apps can initially cover the taskbar, but switching/opening another app causes the taskbar to cover the overlapped area again.
+Require all of these before reporting success:
+
+- task state is `Running`;
+- trigger is a current-user logon trigger and is enabled;
+- exactly one watcher process exists;
+- watcher `MainWindowHandle` is `0`;
+- taskbar `Topmost` is `False` while the watcher is running;
+- stop/start lifecycle produces a new working PID;
+- a second start keeps one instance because `IgnoreNew` is active.
+
+## Functional overlap test
+
+1. Run `Status`, then `LowerTaskbar`.
+2. Place a normal non-topmost app so its rectangle genuinely intersects the taskbar rectangle.
+3. Switch to another app and back.
+4. Probe an intersection point or visually verify that the app, not `Shell_TrayWnd`, is on top.
+5. If Explorer restacks the taskbar, install/start the 50 ms watcher and repeat the test.
+
+Do not infer overlap from a screenshot alone. Confirm the app rectangle intersects the taskbar rectangle or sample `WindowFromPoint` at an intersection coordinate.
+
+## Stop and rollback
+
+Stop and remove autostart:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codex\skills\taskbar-zorder\scripts\taskbar-zorder.ps1" -Mode KeepTaskbarLowered -IntervalMs 50
+& $autostart -Mode Uninstall
 ```
 
-Start it hidden in the background when the user wants the behavior to stay active:
+Then request normal restoration and verify it:
 
 ```powershell
-$script = "$env:USERPROFILE\.codex\skills\taskbar-zorder\scripts\taskbar-zorder.ps1"
-$p = Start-Process powershell -WindowStyle Hidden -PassThru -ArgumentList @(
-  '-NoProfile',
-  '-ExecutionPolicy',
-  'Bypass',
-  '-File',
-  $script,
-  '-Mode',
-  'KeepTaskbarLowered',
-  '-IntervalMs',
-  '50'
-)
-"Started KeepTaskbarLowered watcher. PID=$($p.Id)"
+& $zorder -Mode RestoreTaskbar
+& $zorder -Mode Status
 ```
 
-`RestoreTaskbar` restores the taskbar to topmost.
+If `Topmost` remains `False`, explain the limitation and restart Explorer only with the user's authorization:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codex\skills\taskbar-zorder\scripts\taskbar-zorder.ps1" -Mode RestoreTaskbar
-```
-
-`PinForeground` sets the current foreground window topmost. This can help for one target app, but it does not solve Explorer restacking by itself.
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codex\skills\taskbar-zorder\scripts\taskbar-zorder.ps1" -Mode PinForeground
-```
-
-## Workflow
-
-1. Run `Status` and confirm `Shell_TrayWnd` is visible and usually `Topmost: True`.
-2. Run `LowerTaskbar`.
-3. Ask the user to drag an app over the taskbar and switch/open another app.
-4. If the taskbar returns above the overlapped app, start `KeepTaskbarLowered -IntervalMs 50` in a hidden background PowerShell process.
-5. Report the watcher PID and the exact stop/restore command:
-
-```powershell
-Stop-Process -Id <PID>
-powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codex\skills\taskbar-zorder\scripts\taskbar-zorder.ps1" -Mode RestoreTaskbar
+Stop-Process -Name explorer -Force
+Start-Process explorer.exe
 ```
 
 ## Internals
 
-The script uses `user32.dll` APIs:
-
-- `EnumWindows` to find `Shell_TrayWnd` and `Shell_SecondaryTrayWnd`.
-- `GetWindowLongPtr(GWL_EXSTYLE)` to test `WS_EX_TOPMOST`.
-- `SetWindowPos(HWND_NOTOPMOST)` to remove topmost state.
-- `SetWindowPos(HWND_BOTTOM)` to place the taskbar below normal windows.
-- `GetForegroundWindow` plus `SetWindowPos(HWND_TOPMOST)` for foreground-window pinning.
-
-This changes live HWND ordering only. It does not edit the registry, DWM settings, Explorer binaries, or shell startup configuration.
+The Z-order script uses `EnumWindows`, `GetWindowLongPtr`, `SetWindowPos`, and `GetForegroundWindow` from `user32.dll`. The autostart installer uses the Windows ScheduledTasks module and a stable per-user `pwsh.exe` launcher when available. It does not edit the registry, DWM settings, Explorer binaries, or shell startup files.
