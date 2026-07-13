@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex Multi Auth + ChatGPT Desktop App Setup"
+  short_description: "Apply & verify codex-multi-auth 2.6.0 capture-back fix + new-ChatGPT-app launcher"
+  default_prompt: "Use $codex-multi-auth-app-setup to reproduce the codex-multi-auth capture-back patch and the new ChatGPT desktop app launcher on this machine (e.g. office laptop), then verify with the isolated test."
