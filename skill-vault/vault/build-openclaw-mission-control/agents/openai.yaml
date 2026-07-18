@@ -1,0 +1,4 @@
+interface:
+  display_name: "Build OpenClaw Mission Control"
+  short_description: "Build and operate a secure OpenClaw console"
+  default_prompt: "Use $build-openclaw-mission-control to build, secure, deploy, or repair my OpenClaw Mission Control."

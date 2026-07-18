@@ -58,6 +58,7 @@ Only `SKILL.md` is required. Optional folders can be present when the child skil
 - `persist-openclaw-gateway`: Keep status and live-log terminals persistent and make supervisor/watchdog health include enabled Telegram workers, not only the gateway port.
 - `update-basha-commander-agentic-gpt`: Update the Basha Commander Custom GPT in Chrome with Codex-style agentic bridge behavior, verify enabled capabilities, handle the 8000-character save limit, smoke-test bridge execution, confirm no Allow/Deny prompt, and verify audit-log success.
 - `setup-office-commander-gpt`: Build, repair, migrate, or verify the separate Office Commander Custom GPT and authenticated office-laptop bridge for Windows, Chrome, Google Workspace, GitHub, Figma, and Postman while keeping Basha Commander untouched.
+- `build-openclaw-mission-control`: Build, audit, secure, deploy, repair, or extend the private OpenClaw Mission Control with admin sign-in, a signed localhost bridge, native persistent chat, operational controls, and a sanitized capability Toolbox.
 
 ## Guardrails
 
