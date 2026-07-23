@@ -1,0 +1,4 @@
+interface:
+  display_name: "FB Second Brain"
+  short_description: "Save media and queue the right Messenger group"
+  default_prompt: "Use $fb-second-brain to save this item and queue eligible media for the matching Messenger group."

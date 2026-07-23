@@ -59,6 +59,7 @@ Only `SKILL.md` is required. Optional folders can be present when the child skil
 - `update-basha-commander-agentic-gpt`: Update the Basha Commander Custom GPT in Chrome with Codex-style agentic bridge behavior, verify enabled capabilities, handle the 8000-character save limit, smoke-test bridge execution, confirm no Allow/Deny prompt, and verify audit-log success.
 - `setup-office-commander-gpt`: Build, repair, migrate, or verify the separate Office Commander Custom GPT and authenticated office-laptop bridge for Windows, Chrome, Google Workspace, GitHub, Figma, and Postman while keeping Basha Commander untouched.
 - `build-openclaw-mission-control`: Build, audit, secure, deploy, repair, or extend the private OpenClaw Mission Control with admin sign-in, a signed localhost bridge, native persistent chat, operational controls, and a sanitized capability Toolbox.
+- `fb-second-brain`: Save Telegram text and media into the narrowest OpenClaw memory file, durably queue eligible image/video/audio/link drops, and drain them sequentially to the exact Messenger second-brain group with verified-only removal.
 
 ## Guardrails
 
