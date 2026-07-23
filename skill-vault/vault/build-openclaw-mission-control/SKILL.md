@@ -1,6 +1,6 @@
 ---
 name: build-openclaw-mission-control
-description: Build, audit, secure, deploy, repair, or extend a private OpenClaw Mission Control web app with single-admin sign-in, a localhost-only signed bridge, native persistent chat history, operational controls, and a sanitized Skills/MCP/CLI/plugins Toolbox. Use when Yousuf asks to create or update the OpenClaw dashboard, Mission Control, continuous web chat, Vercel deployment, GitHub repository, Tailscale Funnel bridge, capability inventory, or production verification.
+description: Build, audit, secure, deploy, repair, or extend a private OpenClaw Mission Control web app with single-admin sign-in, a localhost-only signed bridge, native chat plus sanitized durable continuity recovery, operational controls, and a sanitized Skills/MCP/CLI/plugins Toolbox. Use when Yousuf asks to create or update the OpenClaw dashboard, Mission Control, fix chat/session context loss, preserve follow-up continuity, deploy to Vercel/GitHub, configure the bridge or tunnel, inspect capabilities, or verify production.
 ---
 
 # Build OpenClaw Mission Control
@@ -69,14 +69,21 @@ Require:
 
 Keep credentials only in ignored local env files and encrypted deployment environment variables. Use password hashes, not plaintext passwords. Never use a `NEXT_PUBLIC_` variable for a secret.
 
-## 4. Implement native persistent chat
+## 4. Implement native chat with durable continuity
 
-Use OpenClaw-native session history rather than a parallel transcript database:
+Use OpenClaw-native session history for live reconciliation and keep a local,
+sanitized recovery archive for continuity:
 
 - Generate a new opaque thread ID and a dedicated session key such as `agent:<agent-id>:mission-control-<uuid>`.
 - Send with `chat.send`, reconcile with `chat.history`, monitor with `agent.wait`, and stop with `chat.abort`.
-- Persist only Mission Control metadata locally: title, agent, model, thinking level, pin/archive state, status, timestamps, preview, message count, active run, and sanitized error.
-- Keep native transcript bodies in OpenClaw. Ignore the local metadata file in Git.
+- Persist Mission Control metadata plus sanitized visible user/assistant messages in an ignored, atomic local recovery store. Keep the native session key and active run ID as private metadata only; never place them in the message archive or public projections. Never archive attachment bodies, reasoning, tool calls, or credentials.
+- Treat native history as the live transcript source and the local archive as the recovery source when native state resets, compacts, disappears, or changes during a send.
+- Before every non-initial send, prepend a bounded sanitized continuity packet built from the most recent archived dialogue. Do not wait for a changed session ID or a pre-send history gap: OpenClaw can reset the effective session inside `chat.send` after the preflight still looked healthy.
+- Make the packet neutral when native context already exists. Tell the agent that it may duplicate native history, that short replies such as `continue`, `next`, `yes`, or `do it` refer to the exact prior task, and that it must re-establish a referenced project or working directory because tool process state may reset between turns.
+- If a recent assistant turn claimed that the task, context, or workspace was missing, identify it as a failed continuity attempt and resume the earlier unfinished user task.
+- Strip the internal continuity envelope from normalized history and every browser response.
+- Merge durable and native messages in sequence order. Do not globally deduplicate only by role/content/time, because repeated prompts or identical assistant replies are legitimate separate turns.
+- Write the recovery store serially and atomically, keep a last-known-good backup, and ignore all store files in Git.
 - Return history only for administrator-created Mission Control threads.
 - Remove reasoning, tool calls, silent sentinels, provider retry artifacts, duplicate retry turns, base64 payloads, and internal session/run identifiers.
 - Validate attachment MIME, filename, base64 shape, and size. Do not return attachment contents in history.
@@ -112,13 +119,14 @@ Run the project validation command, normally:
 pnpm check
 ```
 
-Require automated coverage for signature verification/replay resistance, snapshot and capability sanitization, metadata persistence, private identifier removal, history normalization, native send/wait/abort wiring, authorization, and input limits.
+Require automated coverage for signature verification/replay resistance, snapshot and capability sanitization, atomic recovery persistence, private identifier removal, history normalization, follow-up continuity replay when a native reset happens during send, repeated identical turns, native send/wait/abort wiring, authorization, and input limits.
 
 Use the Browser skill for local and final production E2E:
 
 - sign in and sign out;
 - load live telemetry and every major surface;
 - create/send/stop/reload a chat and confirm persistence;
+- send a bare `continue` after forcing or reproducing native context loss, confirm that the earlier unfinished task resumes, reload, and confirm the recovered answer remains while the internal continuity envelope stays hidden;
 - rename, pin, filter, archive/restore, export, and attachment validation;
 - inspect all Toolbox categories and search;
 - exercise at least one narrow mobile viewport;

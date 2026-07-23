@@ -64,11 +64,13 @@ Include tests for:
 1. valid/invalid/stale/replayed HMAC requests;
 2. raw snapshot sanitization and opaque references;
 3. capability descriptions, paths, URLs, email, IDs, and MCP env values;
-4. thread metadata persistence and public-field omission;
-5. history normalization, duplicate retry removal, reasoning/tool suppression, and attachment-body omission;
-6. native `chat.send`, `agent.wait`, `chat.history`, and `chat.abort` wiring;
-7. auth and role rejection;
-8. request, message, attachment, process, and output limits.
+4. atomic metadata plus sanitized recovery-message persistence, backup recovery, and public-field omission;
+5. history normalization, continuity-envelope removal, duplicate retry removal, reasoning/tool suppression, and attachment-body omission;
+6. continuity replay on every follow-up, including a reset that happens inside `chat.send` after healthy preflight history;
+7. sequence-aware merging that preserves repeated identical prompts and assistant replies as separate turns;
+8. native `chat.send`, `agent.wait`, `chat.history`, and `chat.abort` wiring;
+9. auth and role rejection;
+10. request, message, attachment, process, and output limits.
 
 ## Browser E2E matrix
 
@@ -80,7 +82,7 @@ Include tests for:
 | Chat | create, send, stop, persistence, rename, pin, filters, archive/restore, export, Markdown, attachment |
 | Toolbox | all categories, counts, search, readiness, refresh, sanitizer output |
 | Responsive | desktop and narrow mobile navigation, composer, dialogs, overflow |
-| Recovery | bridge restart, transient timeout then successful retry, stale error removal |
+| Recovery | bridge restart, transient timeout then successful retry, stale error removal, bare `continue` after native context loss, correct earlier-task resumption, reload persistence, hidden continuity envelope |
 
 Use the in-app Browser skill against localhost first and the final production alias last. Finalize only the production deliverable tab.
 
