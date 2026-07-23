@@ -803,6 +803,16 @@ function registerProducerTests() {
 }
 
 function registerIntegrationConfigTests() {
+  test('Messenger PIN helper uses the encrypted local store without embedding a credential', async () => {
+    const helperFile = path.join(DEFAULT_OPENCLAW_ROOT, 'workspace', 'skills', 'fb-second-brain', 'scripts', 'messenger-pin-helper.ps1');
+    const helper = await fs.readFile(helperFile, 'utf8');
+    assert.match(helper, /ConvertTo-SecureString/);
+    assert.match(helper, /SecureStringToBSTR/);
+    assert.match(helper, /ZeroFreeBSTR/);
+    assert.match(helper, /snapshot --efficient/);
+    assert.match(helper, /type \$pinRef \$plainPin --submit/);
+    assert.doesNotMatch(helper, /\b\d{6}\b/);
+  });
   test('production cron job has required model, cadence, and isolation', async () => {
     const cronFile = path.join(DEFAULT_OPENCLAW_ROOT, 'cron', 'jobs.json');
     const config = JSON.parse(await fs.readFile(cronFile, 'utf8'));
@@ -811,12 +821,18 @@ function registerIntegrationConfigTests() {
     const job = matches[0];
     assert.equal(job.enabled, true);
     assert.equal(job.agentId, 'main-cron');
-    assert.equal(job.schedule.everyMs, 10 * 60 * 1000);
+    assert.equal(job.schedule.kind, 'cron');
+    assert.equal(job.schedule.expr, '30 18 * * *');
+    assert.equal(job.schedule.tz, 'Asia/Dhaka');
+    assert.equal(job.schedule.staggerMs, 0);
     assert.equal(job.sessionTarget, 'isolated');
     assert.equal(job.payload.model, 'opencode-go/minimax-m3');
     assert.equal(job.payload.thinking, 'high');
     assert.equal(job.payload.lightContext, true);
     assert.match(job.payload.message, /complete --verified true/);
+    assert.match(job.payload.message, /messenger-pin-helper\.ps1/);
+    assert.match(job.payload.message, /never ask Yousuf/i);
+    assert.doesNotMatch(job.payload.message, /\b\d{6}\b/);
     assert.match(job.payload.message, /exactly NO_REPLY/);
     assert.match(job.payload.message, /FINAL_OUTPUT_GATE \(ABSOLUTE\)/);
   });

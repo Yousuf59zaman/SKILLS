@@ -27,12 +27,12 @@ Use `scripts/prepare-drop.mjs` as the normal deterministic entry point. A live e
 
 ## Queue drain (main-cron only)
 
-Read `references/queue-contract.md` before operating the worker. The scheduled worker must use agent `main-cron`, model `opencode-go/minimax-m3`, thinking `high`, and the visible managed browser profile `openclaw`.
+Read `references/queue-contract.md` before operating the worker. Run it once daily at `18:30 Asia/Dhaka`; one run drains every currently eligible queue item sequentially. The scheduled worker must use agent `main-cron`, model `opencode-go/minimax-m3`, thinking `high`, and the visible managed browser profile `openclaw`.
 
 1. Acquire the exclusive queue lock with `queue-worker.mjs begin-run`. If it reports `busy`, return `NO_REPLY` and stop.
 2. Repeatedly call `claim-next`. Process exactly one claimed item at a time; never post jobs concurrently.
 3. Follow the claimed job's `post_manifest.browser_handoff` using only OpenClaw's visible browser. Snapshot before every action and obtain fresh refs after navigation or any page-changing action.
-4. Confirm Facebook is already logged in. If Messenger shows an optional chat-history restore PIN dialog, never enter, request, store, or guess the PIN and never choose a destructive no-restore option. Dismiss only through a normal safe close; otherwise fail the job with the reason.
+4. Confirm Facebook is already logged in. If Messenger shows the chat-history restore PIN dialog, immediately run `powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\User\.openclaw\workspace\skills\fb-second-brain\scripts\messenger-pin-helper.ps1 -Action Submit -BrowserProfile openclaw`. The helper reads the Windows-user-bound encrypted local credential, submits it without echoing it, and verifies that the PIN prompt disappeared. Never retrieve, print, copy, log, or ask Yousuf for the raw PIN; never use a one-time code or destructive no-restore option. If the helper is missing, cannot decrypt, or cannot verify submission, fail and retain the job.
 5. Search the exact target group, open the unique matching conversation, attach all queued local files, wait until every upload is visibly ready, add only `message_text` when non-empty, and send once.
 6. Take a fresh snapshot. Only when the new outgoing text/link/attachment is visibly present may you call `complete --verified true`. Completion logs `sent` and then removes the queue JSON and copied payload.
 7. On a posting or verification failure, call `fail` with the concise error. The worker retries with backoff up to five attempts and then retains the job and payload in `failed/`. Continue to the next eligible job.
@@ -51,6 +51,8 @@ Read `references/queue-contract.md` before operating the worker. The scheduled w
 - Preserve exact capitalization of the nine group names.
 - Never write to `openclaw.json`, auth/profile files, or `memory/fb-messenger-groups.md` as part of this workflow.
 - Never use headless browser automation, standalone Puppeteer/Playwright, stored cookies, or extracted browser credentials.
+- Never put the Messenger chat-history PIN in a prompt, memory file, queue job, cron configuration, source file, test, Git repository, or log. Only `messenger-pin-helper.ps1` may access the DPAPI-encrypted local store, and only long enough to submit it to the visible managed browser.
+- Never ask Yousuf for the Messenger chat-history PIN during a browser task. If the encrypted helper fails, record the safe failure and retain the queue item without trying a one-time code or destructive no-restore flow.
 - Do not log success before a fresh Messenger snapshot proves the message appeared.
 
 ## Script inputs
@@ -79,7 +81,7 @@ Use `dry_run: true` for producer tests; it writes neither memory nor queue data.
 
 ## Testing
 
-Run `node scripts/self-test.mjs` for the isolated regression matrix. It creates and removes temporary workspaces, never touches the production memory/queue, and never sends a Messenger message. After code or cron changes, also run the skill validator, confirm the production queue is unlocked, confirm the single cron job still uses `main-cron` + `opencode-go/minimax-m3` + `high`, and use an empty-queue cron smoke run when safe. Treat a live Messenger PIN/OTP/login screen as a blocked integration check; never bypass it during testing.
+Run `node scripts/self-test.mjs` for the isolated regression matrix. It creates and removes temporary workspaces, never touches the production memory/queue, and never sends a Messenger message. After code or cron changes, also run the skill validator, confirm the production queue is unlocked, confirm the single cron job still uses `main-cron` + `opencode-go/minimax-m3` + `high`, and use an empty-queue cron smoke run when safe. A live Messenger PIN prompt may be cleared only with `messenger-pin-helper.ps1`; verify the prompt disappears and never send a message during that check. Treat login, OTP, helper failure, or an unreadable encrypted store as a blocked integration check.
 
 ## Categories
 
