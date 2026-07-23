@@ -37,36 +37,39 @@ export async function checkDuplicate(input = {}) {
   const lowerMemory = memoryText.toLocaleLowerCase('en-US');
   const logEntries = await readJsonLines(logPath);
   const reasons = [];
-  const matches = [];
+  const memoryMatches = [];
+  const deliveryMatches = [];
+  const hasStrongIdentity = urls.length > 0 || hashes.some((item) => item.sha256) || attachmentPaths.length > 0;
 
   for (const url of urls) {
     if (existingUrls.has(url)) {
       reasons.push('canonical_url');
-      matches.push({ kind: 'canonical_url', value: url, location: targetRelative });
+      memoryMatches.push({ kind: 'canonical_url', value: url, location: targetRelative });
     }
   }
 
   for (const attachmentPath of attachmentPaths) {
     if (lowerMemory.includes(attachmentPath)) {
       reasons.push('attachment_path');
-      matches.push({ kind: 'attachment_path', value: attachmentPath, location: targetRelative });
+      memoryMatches.push({ kind: 'attachment_path', value: attachmentPath, location: targetRelative });
     }
   }
 
   for (const hash of hashes) {
     if (hash.sha256 && lowerMemory.includes(hash.sha256.toLocaleLowerCase('en-US'))) {
       reasons.push('attachment_hash');
-      matches.push({ kind: 'sha256', value: hash.sha256, location: targetRelative });
+      memoryMatches.push({ kind: 'sha256', value: hash.sha256, location: targetRelative });
     }
   }
 
-  if (title.length >= 12 && normalizedMemory.includes(title)) {
+  if (!hasStrongIdentity && title.length >= 12 && normalizedMemory.includes(title)) {
     reasons.push('normalized_title');
-    matches.push({ kind: 'normalized_title', value: title, location: targetRelative });
+    memoryMatches.push({ kind: 'normalized_title', value: title, location: targetRelative });
   }
 
   for (const entry of logEntries) {
     if (!entry || entry._invalid_jsonl_line) continue;
+    const logMatches = [];
     const entryUrls = new Set([
       ...(Array.isArray(entry.canonical_urls) ? entry.canonical_urls.map(String) : []),
       ...canonicalUrlsFrom(entry.source),
@@ -74,7 +77,7 @@ export async function checkDuplicate(input = {}) {
     for (const url of urls) {
       if (entryUrls.has(url)) {
         reasons.push('logged_canonical_url');
-        matches.push({ kind: 'canonical_url', value: url, location: 'memory/fb_second_brain_log.jsonl' });
+        logMatches.push({ kind: 'canonical_url', value: url, location: 'memory/fb_second_brain_log.jsonl' });
       }
     }
 
@@ -82,19 +85,27 @@ export async function checkDuplicate(input = {}) {
     for (const hash of hashes) {
       if (hash.sha256 && entryHashes.has(hash.sha256)) {
         reasons.push('logged_attachment_hash');
-        matches.push({ kind: 'sha256', value: hash.sha256, location: 'memory/fb_second_brain_log.jsonl' });
+        logMatches.push({ kind: 'sha256', value: hash.sha256, location: 'memory/fb_second_brain_log.jsonl' });
       }
     }
 
     const entryTitle = normalizeTitle(entry.title);
-    if (title.length >= 12 && entryTitle && entryTitle === title) {
+    if (!hasStrongIdentity && title.length >= 12 && entryTitle && entryTitle === title) {
       reasons.push('logged_title');
-      matches.push({ kind: 'normalized_title', value: title, location: 'memory/fb_second_brain_log.jsonl' });
+      logMatches.push({ kind: 'normalized_title', value: title, location: 'memory/fb_second_brain_log.jsonl' });
+    }
+
+    memoryMatches.push(...logMatches);
+    if (normalizeText(entry.post_status).toLocaleLowerCase('en-US') === 'sent') {
+      deliveryMatches.push(...logMatches.map((match) => ({ ...match, post_status: 'sent' })));
     }
   }
 
-  const uniqueMatches = uniqueObjects(matches);
-  const duplicate = uniqueMatches.length > 0;
+  const uniqueMemoryMatches = uniqueObjects(memoryMatches);
+  const uniqueDeliveryMatches = uniqueObjects(deliveryMatches);
+  const memoryDuplicate = uniqueMemoryMatches.length > 0;
+  const deliveryDuplicate = uniqueDeliveryMatches.length > 0;
+  const duplicate = memoryDuplicate || deliveryDuplicate;
   const fingerprintParts = [
     ...urls.map((value) => `url:${value}`),
     ...hashes.filter((item) => item.sha256).map((item) => `sha256:${item.sha256}`),
@@ -103,8 +114,11 @@ export async function checkDuplicate(input = {}) {
 
   return {
     duplicate,
+    memory_duplicate: memoryDuplicate,
+    delivery_duplicate: deliveryDuplicate,
     reasons: [...new Set(reasons)],
-    matches: uniqueMatches,
+    matches: uniqueMemoryMatches,
+    delivery_matches: uniqueDeliveryMatches,
     memory_file: targetRelative,
     canonical_urls: urls,
     attachment_hashes: hashes,

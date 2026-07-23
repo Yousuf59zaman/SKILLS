@@ -67,8 +67,9 @@ export async function prepareFbPost(input = {}) {
       message_text: messageText,
       verification: verificationCue(contentType, messageText, inspectedAttachments, urls),
       steps: [
-        'Snapshot the visible page and verify Facebook is already logged in.',
-        'If an optional chat-history restore PIN dialog appears, do not enter or request the PIN and do not choose a destructive no-restore option; dismiss only with a normal safe close, otherwise stop and notify Yousuf.',
+        'Before claiming or posting, run the fb-second-brain messenger-login-helper.ps1 with Action Login and profile openclaw; it no-ops when already logged in and otherwise uses only the encrypted local login store.',
+        'If the login helper reports two_factor_required, leave the queue untouched, release the lock, stop, and notify Yousuf with the exact 2-step message from the queue contract.',
+        'If the Messenger chat-history PIN prompt appears, run the fb-second-brain messenger-pin-helper.ps1 with Action Submit and profile openclaw; continue only after verified success, never expose or ask Yousuf for the PIN, and never use a one-time-code or destructive no-restore flow.',
         `Search Messenger for the exact group name: ${fbGroup}.`,
         'Open the unique matching group conversation and take a fresh snapshot.',
         'Attach each local file, if any, and wait until every upload is visibly ready.',

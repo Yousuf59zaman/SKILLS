@@ -23,10 +23,12 @@ node C:\Users\User\.openclaw\workspace\skills\fb-second-brain\scripts\queue-work
 ## Posting rules
 
 - Use only the visible OpenClaw browser profile `openclaw`; do not use `chrome`, an extension relay, headless mode, standalone Playwright/Puppeteer, cookies, or extracted credentials.
+- Before claiming a job, open Messenger and run `powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\User\.openclaw\workspace\skills\fb-second-brain\scripts\messenger-login-helper.ps1 -Action Login -BrowserProfile openclaw`. The helper may use only the local Windows-user-bound encrypted store and must never print or return the raw login.
+- If the helper returns `two_factor_required`, leave every job pending, release the lock, stop the run, and return exactly `Messenger login needs 2-step verification. Queue retained; please complete it in the openclaw browser.`
 - Use the claimed job's `post_manifest.browser_handoff` as the exact target, attachments, message, and verification cue.
 - Take a fresh snapshot before each browser action. Refs expire after navigation, search, send, modal changes, and uploads.
 - If a Messenger chat-history PIN prompt appears, run `powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\User\.openclaw\workspace\skills\fb-second-brain\scripts\messenger-pin-helper.ps1 -Action Submit -BrowserProfile openclaw` and continue only when it reports verified success. Never print, retrieve, copy, log, or ask Yousuf for the raw PIN.
-- A blocking login or one-time code, a missing/unreadable PIN helper or encrypted store, an unverified PIN submission, an ambiguous group match, a missing attachment, an upload failure, or an unverified send is a failure, never a completion. Never use a one-time-code or destructive no-restore flow.
+- An unreadable login/PIN encrypted store, unverified login/PIN submission, ambiguous group match, missing attachment, upload failure, or unverified send is a failure, never a completion. A 2-step challenge is a global preflight stop, not a job failure: do not claim or increment any job attempt. Never guess or enter a 2-step code and never use a destructive no-restore flow.
 - Retry one transient browser action after 3-5 seconds. If it still fails, record `fail` and continue the queue.
 - Call `complete` immediately after verification so an external side effect is not left unrecorded.
 - Continue claiming sequentially until `claimed` is false. A backoff-delayed pending job does not prevent later eligible jobs from being claimed.
@@ -34,4 +36,4 @@ node C:\Users\User\.openclaw\workspace\skills\fb-second-brain\scripts\queue-work
 
 ## Notification rules
 
-Return exactly `NO_REPLY` when the queue is empty or another worker owns the lock. In that case the entire final response must be only those eight characters: no explanation, prefix, suffix, whitespace-only line, quote, or code fence. When work occurred, return one short summary such as `Messenger queue: 3 sent, 1 retry scheduled, 0 permanently failed.` Never expose message contents, contact identifiers, paths, auth data, or browser-session details in the summary.
+Return exactly `NO_REPLY` when the queue is empty or another worker owns the lock. In that case the entire final response must be only those eight characters: no explanation, prefix, suffix, whitespace-only line, quote, or code fence. If 2-step verification is required, return only the exact notification sentence above. When work occurred, return one short summary such as `Messenger queue: 3 sent, 1 retry scheduled, 0 permanently failed.` Never expose message contents, contact identifiers, paths, auth data, or browser-session details in the summary.

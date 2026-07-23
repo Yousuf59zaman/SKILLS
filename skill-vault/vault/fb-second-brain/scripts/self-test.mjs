@@ -310,6 +310,8 @@ function registerDedupeTests() {
     await fs.writeFile(path.join(workspace, 'memory', 'travel.md'), 'https://example.com/place?utm_source=old\n');
     const result = await checkDuplicate({ workspace, memory_file: 'memory/travel.md', source: 'https://example.com/place?fbclid=1' });
     assert.equal(result.duplicate, true);
+    assert.equal(result.memory_duplicate, true);
+    assert.equal(result.delivery_duplicate, false);
     assert.ok(result.reasons.includes('canonical_url'));
   });
   test('dedupe finds normalized title in memory', async () => {
@@ -331,14 +333,53 @@ function registerDedupeTests() {
     await fs.writeFile(path.join(workspace, 'memory', 'travel.md'), `sha256: ${hash}\n`);
     const result = await checkDuplicate({ workspace, memory_file: 'memory/travel.md', attachment_paths: [fixtures.imageCopy] });
     assert.equal(result.duplicate, true);
+    assert.equal(result.memory_duplicate, true);
+    assert.equal(result.delivery_duplicate, false);
     assert.ok(result.reasons.includes('attachment_hash'));
+  });
+  test('dedupe does not treat a reused title as the same image when a strong hash differs', async () => {
+    const workspace = await freshWorkspace('dedupe-title-image');
+    await fs.writeFile(path.join(workspace, 'memory', 'travel.md'), '### Reused media title\n');
+    const result = await checkDuplicate({
+      workspace,
+      memory_file: 'memory/travel.md',
+      title: 'Reused media title',
+      attachment_paths: [fixtures.imageDifferent],
+    });
+    assert.equal(result.duplicate, false);
+    assert.equal(result.memory_duplicate, false);
   });
   test('dedupe finds URL in metadata log', async () => {
     const workspace = await freshWorkspace('dedupe-log-url');
     await fs.writeFile(path.join(workspace, 'memory', 'fb_second_brain_log.jsonl'), `${JSON.stringify({ canonical_urls: ['https://example.com/logged'] })}\n`);
     const result = await checkDuplicate({ workspace, memory_file: 'memory/travel.md', source: 'https://example.com/logged?utm_source=x' });
     assert.equal(result.duplicate, true);
+    assert.equal(result.memory_duplicate, true);
+    assert.equal(result.delivery_duplicate, false);
     assert.ok(result.reasons.includes('logged_canonical_url'));
+  });
+  test('only a verified sent log is a delivery duplicate', async () => {
+    const workspace = await freshWorkspace('dedupe-sent-log');
+    const logFile = path.join(workspace, 'memory', 'fb_second_brain_log.jsonl');
+    await fs.writeFile(logFile, [
+      JSON.stringify({ canonical_urls: ['https://example.com/not-sent'], post_status: 'skipped_duplicate' }),
+      JSON.stringify({ canonical_urls: ['https://example.com/sent'], post_status: 'sent' }),
+      '',
+    ].join('\n'));
+    const notSent = await checkDuplicate({
+      workspace,
+      memory_file: 'memory/travel.md',
+      source: 'https://example.com/not-sent',
+    });
+    const sent = await checkDuplicate({
+      workspace,
+      memory_file: 'memory/travel.md',
+      source: 'https://example.com/sent',
+    });
+    assert.equal(notSent.memory_duplicate, true);
+    assert.equal(notSent.delivery_duplicate, false);
+    assert.equal(sent.memory_duplicate, true);
+    assert.equal(sent.delivery_duplicate, true);
   });
   test('dedupe tolerates missing attachment and invalid JSONL', async () => {
     const workspace = await freshWorkspace('dedupe-invalid');
@@ -457,9 +498,12 @@ function registerQueueTests() {
     const workspace = await freshWorkspace('queue-copy');
     const result = await enqueueMediaJob({ workspace, ...mediaInput() });
     assert.equal(result.queued, true);
+    assert.equal(result.queue_number, 1);
     assert.equal(result.post_manifest.browser_handoff.profile, 'openclaw');
     assert.equal(await exists(result.post_manifest.browser_handoff.attachment_paths[0]), true);
     assert.deepEqual(await fs.readFile(result.post_manifest.browser_handoff.attachment_paths[0]), await fs.readFile(fixtures.imageA));
+    const job = JSON.parse(await fs.readFile(path.join(workspace, result.queue_file), 'utf8'));
+    assert.equal(job.queue_number, 1);
   });
   test('queue stores links without payload files', async () => {
     const workspace = await freshWorkspace('queue-link');
@@ -468,6 +512,8 @@ function registerQueueTests() {
     assert.equal(result.queued, true);
     assert.deepEqual(result.payload_paths, []);
     assert.equal(status.pending, 1);
+    assert.equal(status.last_queue_number, 1);
+    assert.equal(status.next_queue_number, 2);
   });
   for (const [type, fixture] of [['video', 'video'], ['audio', 'audio']]) {
     test(`queue copies ${type} payload`, async () => {
@@ -495,7 +541,55 @@ function registerQueueTests() {
     const second = await enqueueMediaJob({ workspace, ...linkInput({ content_fingerprint: fingerprint }) });
     assert.equal(first.queued, true);
     assert.equal(second.skipped, 'already_queued');
+    assert.equal(first.queue_number, 1);
+    assert.equal(second.queue_number, 1);
     assert.equal((await queueStatus({ workspace })).pending, 1);
+  });
+  test('queue numbers remain monotonic after a completed job is removed', async () => {
+    const workspace = await freshWorkspace('queue-number-monotonic');
+    const first = await enqueueMediaJob({ workspace, ...linkInput() });
+    const run = await beginRun({ workspace });
+    const claim = await claimNext({ workspace, lock_token: run.lock_token });
+    await completeJob({
+      workspace,
+      lock_token: run.lock_token,
+      job_id: claim.job.id,
+      verified: true,
+      verification_note: 'isolated sequence test',
+    });
+    await endRun({ workspace, lock_token: run.lock_token });
+    const second = await enqueueMediaJob({ workspace, ...linkInput() });
+    const status = await queueStatus({ workspace });
+    assert.equal(first.queue_number, 1);
+    assert.equal(second.queue_number, 2);
+    assert.equal(status.last_queue_number, 2);
+    assert.equal(status.next_queue_number, 3);
+  });
+  test('queue status migrates a legacy unnumbered pending job', async () => {
+    const workspace = await freshWorkspace('queue-number-migration');
+    const queued = await enqueueMediaJob({ workspace, ...linkInput() });
+    const jobPath = path.join(workspace, queued.queue_file);
+    const job = JSON.parse(await fs.readFile(jobPath, 'utf8'));
+    delete job.queue_number;
+    job.schema_version = 1;
+    await fs.writeFile(jobPath, `${JSON.stringify(job, null, 2)}\n`, 'utf8');
+    const queueRoot = path.join(workspace, '.queue', 'fb-second-brain');
+    await fs.rm(path.join(queueRoot, 'queue-sequence.json'), { force: true });
+    const events = await readJsonLines(path.join(queueRoot, 'events.jsonl'));
+    await fs.writeFile(
+      path.join(queueRoot, 'events.jsonl'),
+      `${events.map((event) => {
+        const copy = { ...event };
+        delete copy.queue_number;
+        return JSON.stringify(copy);
+      }).join('\n')}\n`,
+      'utf8',
+    );
+    const status = await queueStatus({ workspace });
+    const migrated = JSON.parse(await fs.readFile(jobPath, 'utf8'));
+    assert.equal(migrated.queue_number, 1);
+    assert.equal(status.last_queue_number, 1);
+    assert.equal(status.next_queue_number, 2);
   });
   test('queue lock excludes overlapping workers', async () => {
     const workspace = await freshWorkspace('queue-lock');
@@ -666,8 +760,26 @@ function registerProducerTests() {
     const result = await prepareDrop({ workspace, ...mediaInput() });
     assert.equal(result.status, 'queued');
     assert.equal(result.memory.saved, true);
+    assert.equal(result.queue_number, 1);
+    assert.equal(result.queue.queue_number, 1);
     assert.equal((await queueStatus({ workspace })).pending, 1);
     assert.equal(result.post_manifest.browser_handoff.profile, 'openclaw');
+  });
+  test('producer preserves optional media text in memory and the queue handoff', async () => {
+    const workspace = await freshWorkspace('producer-media-text');
+    const result = await prepareDrop({
+      workspace,
+      ...mediaInput({
+        text: 'save this football image',
+        post_text: 'World Cup mood 😂',
+      }),
+    });
+    const job = JSON.parse(await fs.readFile(path.join(workspace, result.queue.queue_file), 'utf8'));
+    assert.equal(result.status, 'queued');
+    assert.equal(job.text, 'save this football image');
+    assert.equal(job.post_text, 'World Cup mood 😂');
+    assert.equal(job.post_manifest.browser_handoff.message_text, 'World Cup mood 😂');
+    assert.match(await fs.readFile(path.join(workspace, 'memory', 'travel.md'), 'utf8'), /save this football image/);
   });
   test('producer keeps text-only active content in memory', async () => {
     const workspace = await freshWorkspace('producer-text');
@@ -727,7 +839,7 @@ function registerProducerTests() {
     assert.equal(result.status, 'queued');
     assert.equal((await queueStatus({ workspace })).pending, 1);
   });
-  test('producer canonical duplicate makes one queue job', async () => {
+  test('producer canonical duplicate reuses the active queue job', async () => {
     const workspace = await freshWorkspace('producer-duplicate');
     const base = {
       workspace,
@@ -740,9 +852,11 @@ function registerProducerTests() {
     const first = await prepareDrop({ ...base, source: 'https://example.com/same?utm_source=one' });
     const second = await prepareDrop({ ...base, source: 'https://example.com/same?fbclid=two' });
     assert.equal(first.status, 'queued');
-    assert.equal(second.status, 'duplicate_skipped');
+    assert.equal(second.status, 'already_queued');
+    assert.equal(second.queue_number, first.queue_number);
+    assert.equal(second.memory.saved, false);
     assert.equal((await queueStatus({ workspace })).pending, 1);
-    assert.equal(second.metadata_log.entry.post_status, 'skipped_duplicate');
+    assert.equal(second.metadata_log, null);
   });
   test('producer duplicate with new context updates memory but does not requeue', async () => {
     const workspace = await freshWorkspace('producer-update');
@@ -759,7 +873,60 @@ function registerProducerTests() {
     const memory = await fs.readFile(path.join(workspace, 'memory', 'travel.md'), 'utf8');
     assert.equal((await queueStatus({ workspace })).pending, 1);
     assert.match(memory, /### Update:/);
-    assert.equal(second.post_manifest.blocked, 'duplicate');
+    assert.equal(second.status, 'already_queued');
+    assert.equal(second.post_manifest.ready, true);
+  });
+  test('producer backfills queue when memory and a skipped-duplicate log exist without delivery', async () => {
+    const workspace = await freshWorkspace('producer-queue-gap');
+    const input = {
+      workspace,
+      ...mediaInput({
+        title: 'Legacy memory-first media fixture',
+        source: 'Telegram',
+      }),
+    };
+    await saveToMemory(input);
+    await logMetadata({
+      ...input,
+      duplicate: true,
+      post_status: 'skipped_duplicate',
+    });
+    const before = await fs.readFile(path.join(workspace, 'memory', 'travel.md'), 'utf8');
+    const result = await prepareDrop(input);
+    const after = await fs.readFile(path.join(workspace, 'memory', 'travel.md'), 'utf8');
+    assert.equal(result.status, 'queued');
+    assert.equal(result.memory.saved, false);
+    assert.equal(result.recovered_queue_gap, true);
+    assert.equal(after, before);
+    assert.equal((await queueStatus({ workspace })).pending, 1);
+  });
+  test('producer blocks a new queue job after a verified prior send', async () => {
+    const workspace = await freshWorkspace('producer-sent-duplicate');
+    const input = {
+      workspace,
+      type: 'link',
+      title: 'Verified send duplicate fixture',
+      text: 'funny link',
+      category: 'funny',
+      memory_file: 'memory/funny-posts.md',
+      source: 'https://example.com/already-sent',
+    };
+    await prepareDrop(input);
+    const run = await beginRun({ workspace });
+    const claim = await claimNext({ workspace, lock_token: run.lock_token });
+    await completeJob({
+      workspace,
+      lock_token: run.lock_token,
+      job_id: claim.job.id,
+      verified: true,
+      verification_note: 'isolated test verification',
+    });
+    await endRun({ workspace, lock_token: run.lock_token });
+    const result = await prepareDrop(input);
+    assert.equal(result.status, 'duplicate_skipped');
+    assert.equal(result.post_manifest.blocked, 'duplicate');
+    assert.equal(result.metadata_log.entry.post_status, 'skipped_duplicate');
+    assert.equal((await queueStatus({ workspace })).pending, 0);
   });
   test('producer dry-run writes neither memory nor queue', async () => {
     const workspace = await freshWorkspace('producer-dry');
@@ -803,6 +970,15 @@ function registerProducerTests() {
 }
 
 function registerIntegrationConfigTests() {
+  test('skill reply contract requires the human-facing queue item number', async () => {
+    const skill = await fs.readFile(
+      path.join(DEFAULT_OPENCLAW_ROOT, 'workspace', 'skills', 'fb-second-brain', 'SKILL.md'),
+      'utf8',
+    );
+    assert.match(skill, /queue item #N/);
+    assert.match(skill, /returned `queue_number`/);
+    assert.match(skill, /no queue item was created/);
+  });
   test('Messenger PIN helper uses the encrypted local store without embedding a credential', async () => {
     const helperFile = path.join(DEFAULT_OPENCLAW_ROOT, 'workspace', 'skills', 'fb-second-brain', 'scripts', 'messenger-pin-helper.ps1');
     const helper = await fs.readFile(helperFile, 'utf8');
@@ -812,6 +988,20 @@ function registerIntegrationConfigTests() {
     assert.match(helper, /snapshot --efficient/);
     assert.match(helper, /type \$pinRef \$plainPin --submit/);
     assert.doesNotMatch(helper, /\b\d{6}\b/);
+  });
+  test('Messenger login helper uses encrypted fields and exposes only safe status flags', async () => {
+    const helperFile = path.join(DEFAULT_OPENCLAW_ROOT, 'workspace', 'skills', 'fb-second-brain', 'scripts', 'messenger-login-helper.ps1');
+    const helper = await fs.readFile(helperFile, 'utf8');
+    assert.match(helper, /ConvertTo-SecureString/);
+    assert.match(helper, /SecureStringToBSTR/);
+    assert.match(helper, /ZeroFreeBSTR/);
+    assert.match(helper, /email_dpapi/);
+    assert.match(helper, /password_dpapi/);
+    assert.match(helper, /two_factor_required/);
+    assert.match(helper, /notify_yousuf/);
+    assert.match(helper, /snapshot --efficient/);
+    assert.doesNotMatch(helper, /AsPlainText/);
+    assert.doesNotMatch(helper, /@[a-z0-9.-]+\.[a-z]{2,}/i);
   });
   test('production cron job has required model, cadence, and isolation', async () => {
     const cronFile = path.join(DEFAULT_OPENCLAW_ROOT, 'cron', 'jobs.json');
@@ -830,11 +1020,26 @@ function registerIntegrationConfigTests() {
     assert.equal(job.payload.thinking, 'high');
     assert.equal(job.payload.lightContext, true);
     assert.match(job.payload.message, /complete --verified true/);
+    assert.match(job.payload.message, /messenger-login-helper\.ps1/);
+    assert.match(job.payload.message, /two_factor_required/);
+    assert.match(job.payload.message, /2-step verification/);
+    assert.ok(job.payload.message.indexOf('messenger-login-helper.ps1') < job.payload.message.indexOf('Claim and process'));
     assert.match(job.payload.message, /messenger-pin-helper\.ps1/);
     assert.match(job.payload.message, /never ask Yousuf/i);
     assert.doesNotMatch(job.payload.message, /\b\d{6}\b/);
     assert.match(job.payload.message, /exactly NO_REPLY/);
     assert.match(job.payload.message, /FINAL_OUTPUT_GATE \(ABSOLUTE\)/);
+    assert.doesNotMatch(job.payload.message, /@[a-z0-9.-]+\.[a-z]{2,}/i);
+  });
+  test('queue contract leaves pending jobs untouched for a 2-step challenge', async () => {
+    const contract = await fs.readFile(
+      path.join(DEFAULT_OPENCLAW_ROOT, 'workspace', 'skills', 'fb-second-brain', 'references', 'queue-contract.md'),
+      'utf8',
+    );
+    assert.match(contract, /messenger-login-helper\.ps1/);
+    assert.match(contract, /leave every job pending/);
+    assert.match(contract, /do not claim or increment any job attempt/);
+    assert.match(contract, /2-step verification/);
   });
   test('main-cron allowlist contains fb-second-brain', async () => {
     const config = JSON.parse(await fs.readFile(path.join(DEFAULT_OPENCLAW_ROOT, 'openclaw.json'), 'utf8'));

@@ -10,6 +10,7 @@ import {
   nowDhaka,
   printJson,
   readInput,
+  readJsonLines,
 } from './lib.mjs';
 import { logMetadata } from './log-metadata.mjs';
 import { prepareFbPost } from './post-to-fb-group.mjs';
@@ -17,9 +18,12 @@ import { prepareFbPost } from './post-to-fb-group.mjs';
 const QUEUE_RELATIVE_ROOT = path.join('.queue', 'fb-second-brain');
 const LOCK_TTL_MS = 80 * 60 * 1000;
 const DEFAULT_MAX_ATTEMPTS = 5;
+const SEQUENCE_LOCK_STALE_MS = 30 * 1000;
+const SEQUENCE_LOCK_WAIT_MS = 5 * 1000;
 
 export async function enqueueMediaJob(input = {}) {
   const locations = await ensureQueue(input);
+  await ensureQueueNumbers(locations);
   const fingerprint = normalizeText(input.content_fingerprint);
   if (fingerprint) {
     const existing = await findByFingerprint(locations, fingerprint);
@@ -28,6 +32,7 @@ export async function enqueueMediaJob(input = {}) {
         queued: false,
         skipped: 'already_queued',
         job_id: existing.job.id,
+        queue_number: existing.job.queue_number,
         queue_state: existing.state,
         queue_root: toWorkspaceRelative(locations.workspace, locations.root),
       };
@@ -72,10 +77,12 @@ export async function enqueueMediaJob(input = {}) {
       };
     }
 
+    const queueNumber = await allocateQueueNumber(locations);
     const createdAt = nowDhaka();
     const job = {
-      schema_version: 1,
+      schema_version: 2,
       id: jobId,
+      queue_number: queueNumber,
       state: 'pending',
       created_at: createdAt,
       available_at: createdAt,
@@ -122,10 +129,16 @@ export async function enqueueMediaJob(input = {}) {
     const pendingPath = path.join(locations.pending, `${jobId}.json`);
     await writeJsonAtomic(pendingPath, job);
     queueCommitted = true;
-    await appendEvent(locations, { event: 'enqueued', job_id: jobId, fingerprint: job.content_fingerprint });
+    await appendEvent(locations, {
+      event: 'enqueued',
+      job_id: jobId,
+      queue_number: queueNumber,
+      fingerprint: job.content_fingerprint,
+    });
     return {
       queued: true,
       job_id: jobId,
+      queue_number: queueNumber,
       target_group: job.fb_group,
       queue_file: toWorkspaceRelative(locations.workspace, pendingPath),
       payload_paths: queuedAttachments.map((item) => toWorkspaceRelative(locations.workspace, item)),
@@ -300,6 +313,7 @@ export async function endRun(input = {}) {
 
 export async function queueStatus(input = {}) {
   const locations = await ensureQueue(input);
+  const numbering = await ensureQueueNumbers(locations);
   const [pending, processing, failed, lock] = await Promise.all([
     listJobs(locations.pending),
     listJobs(locations.processing),
@@ -312,8 +326,14 @@ export async function queueStatus(input = {}) {
     processing: processing.length,
     failed: failed.length,
     next_available_at: pending[0]?.job?.available_at ?? null,
+    last_queue_number: numbering.last_assigned,
+    next_queue_number: numbering.next_queue_number,
     lock: lock ? publicLock(lock) : null,
   };
+}
+
+export async function assignMissingQueueNumbers(input = {}) {
+  return ensureQueueNumbers(await ensureQueue(input));
 }
 
 async function ensureQueue(input = {}) {
@@ -336,6 +356,8 @@ async function ensureQueue(input = {}) {
     staging: path.join(root, 'staging'),
     events: path.join(root, 'events.jsonl'),
     lock: path.join(root, 'worker-lock.json'),
+    sequence: path.join(root, 'queue-sequence.json'),
+    sequenceLock: path.join(root, 'queue-sequence.lock'),
   };
   await Promise.all([
     locations.pending,
@@ -426,6 +448,117 @@ async function findByFingerprint(locations, fingerprint) {
   return null;
 }
 
+async function ensureQueueNumbers(locations) {
+  return withSequenceLock(locations, async () => {
+    const candidates = [
+      ...(await listJobs(locations.pending)),
+      ...(await listJobs(locations.processing)),
+      ...(await listJobs(locations.failed)),
+    ].sort(compareJobCandidates);
+    let lastAssigned = await highestKnownQueueNumber(locations, candidates);
+    const assigned = [];
+
+    for (const candidate of candidates) {
+      if (validQueueNumber(candidate.job.queue_number)) continue;
+      lastAssigned += 1;
+      const numbered = {
+        ...candidate.job,
+        schema_version: Math.max(2, Number(candidate.job.schema_version) || 1),
+        queue_number: lastAssigned,
+      };
+      await writeJsonAtomic(candidate.file, numbered);
+      await appendEvent(locations, {
+        event: 'queue_number_assigned',
+        job_id: numbered.id,
+        queue_number: numbered.queue_number,
+      });
+      assigned.push({ job_id: numbered.id, queue_number: numbered.queue_number });
+    }
+
+    await writeSequence(locations, lastAssigned);
+    return {
+      assigned,
+      last_assigned: lastAssigned,
+      next_queue_number: lastAssigned + 1,
+    };
+  });
+}
+
+async function allocateQueueNumber(locations) {
+  return withSequenceLock(locations, async () => {
+    const lastAssigned = await highestKnownQueueNumber(locations);
+    const queueNumber = lastAssigned + 1;
+    await writeSequence(locations, queueNumber);
+    return queueNumber;
+  });
+}
+
+async function highestKnownQueueNumber(locations, candidates = null) {
+  const sequence = await readJsonFile(locations.sequence).catch(() => null);
+  const jobs = candidates ?? [
+    ...(await listJobs(locations.pending)),
+    ...(await listJobs(locations.processing)),
+    ...(await listJobs(locations.failed)),
+  ];
+  const events = await readJsonLines(locations.events);
+  return Math.max(
+    0,
+    validQueueNumber(sequence?.last_assigned) ? Number(sequence.last_assigned) : 0,
+    ...jobs.map((candidate) => validQueueNumber(candidate.job.queue_number) ? Number(candidate.job.queue_number) : 0),
+    ...events.map((event) => validQueueNumber(event?.queue_number) ? Number(event.queue_number) : 0),
+  );
+}
+
+async function writeSequence(locations, lastAssigned) {
+  await writeJsonAtomic(locations.sequence, {
+    schema_version: 1,
+    last_assigned: lastAssigned,
+    next_queue_number: lastAssigned + 1,
+    updated_at: nowDhaka(),
+  });
+}
+
+async function withSequenceLock(locations, run) {
+  const handle = await acquireSequenceLock(locations);
+  try {
+    return await run();
+  } finally {
+    await handle.close().catch(() => {});
+    await fs.rm(locations.sequenceLock, { force: true }).catch(() => {});
+  }
+}
+
+async function acquireSequenceLock(locations) {
+  const deadline = Date.now() + SEQUENCE_LOCK_WAIT_MS;
+  while (Date.now() < deadline) {
+    try {
+      const handle = await fs.open(locations.sequenceLock, 'wx');
+      await handle.writeFile(`${JSON.stringify({ pid: process.pid, created_at: nowDhaka() })}\n`, 'utf8');
+      return handle;
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+      const stat = await fs.stat(locations.sequenceLock).catch(() => null);
+      if (stat && Date.now() - stat.mtimeMs > SEQUENCE_LOCK_STALE_MS) {
+        await fs.rm(locations.sequenceLock, { force: true });
+        continue;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+  throw new Error('Timed out waiting for the queue sequence lock');
+}
+
+function compareJobCandidates(left, right) {
+  const leftTime = Date.parse(left.job.created_at || left.job.available_at || 0) || 0;
+  const rightTime = Date.parse(right.job.created_at || right.job.available_at || 0) || 0;
+  return leftTime - rightTime || left.job.id.localeCompare(right.job.id);
+}
+
+function validQueueNumber(value) {
+  const number = Number(value);
+  return Number.isInteger(number) && number > 0;
+}
+
 async function listJobs(directory) {
   const names = (await fs.readdir(directory).catch((error) => {
     if (error?.code === 'ENOENT') return [];
@@ -514,6 +647,7 @@ async function runCli() {
   const input = await readInput(process.argv.slice(3));
   const actions = {
     enqueue: enqueueMediaJob,
+    'assign-numbers': assignMissingQueueNumbers,
     'begin-run': beginRun,
     'claim-next': claimNext,
     complete: completeJob,

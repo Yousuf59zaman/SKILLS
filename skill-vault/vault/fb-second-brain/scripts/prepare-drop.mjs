@@ -25,9 +25,11 @@ export async function prepareDrop(input = {}) {
     fb_group: classification.fb_group,
   };
   const dedupe = await checkDuplicate(enriched);
+  const memoryDuplicate = Boolean(dedupe.memory_duplicate ?? dedupe.duplicate);
+  const deliveryDuplicate = Boolean(dedupe.delivery_duplicate);
   const saveResult = await saveToMemory({
     ...enriched,
-    duplicate: dedupe.duplicate,
+    duplicate: memoryDuplicate,
     dedupe,
     content_fingerprint: dedupe.content_fingerprint,
   });
@@ -49,8 +51,8 @@ export async function prepareDrop(input = {}) {
     attachment_hashes: dedupe.attachment_hashes,
     canonical_urls: dedupe.canonical_urls,
     content_fingerprint: dedupe.content_fingerprint,
-    duplicate: dedupe.duplicate,
-    post_status: dedupe.duplicate
+    duplicate: deliveryDuplicate,
+    post_status: deliveryDuplicate
       ? 'skipped_duplicate'
       : classification.post_allowed
         ? null
@@ -59,7 +61,7 @@ export async function prepareDrop(input = {}) {
 
   const postManifest = await prepareFbPost({
     ...enriched,
-    duplicate: dedupe.duplicate,
+    duplicate: deliveryDuplicate,
     content_fingerprint: dedupe.content_fingerprint,
     browser_profile: 'openclaw',
   });
@@ -72,7 +74,7 @@ export async function prepareDrop(input = {}) {
       try {
         queue = await enqueueMediaJob({
           ...enriched,
-          duplicate: dedupe.duplicate,
+          duplicate: deliveryDuplicate,
           content_fingerprint: dedupe.content_fingerprint,
           canonical_urls: dedupe.canonical_urls,
           attachment_hashes: dedupe.attachment_hashes,
@@ -85,7 +87,7 @@ export async function prepareDrop(input = {}) {
     } else {
       metadataLog = await logMetadata({
         ...logInput,
-        post_status: dedupe.duplicate ? 'skipped_duplicate' : 'memory_only',
+        post_status: deliveryDuplicate ? 'skipped_duplicate' : 'memory_only',
       });
     }
   }
@@ -97,7 +99,7 @@ export async function prepareDrop(input = {}) {
         ? 'queued'
         : queue?.skipped === 'already_queued'
           ? 'already_queued'
-          : dedupe.duplicate && !input.has_new_info
+          : deliveryDuplicate && !input.has_new_info
       ? 'duplicate_skipped'
       : input.dry_run
         ? 'dry_run'
@@ -106,7 +108,9 @@ export async function prepareDrop(input = {}) {
     dedupe,
     memory: saveResult,
     queue,
+    queue_number: queue?.queue_number ?? null,
     queue_error: queueError,
+    recovered_queue_gap: Boolean(memoryDuplicate && !deliveryDuplicate && queue?.queued),
     post_manifest: queue?.post_manifest ?? postManifest,
     log_metadata_input: logInput,
     metadata_log: metadataLog,
