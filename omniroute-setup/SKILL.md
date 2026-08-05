@@ -57,7 +57,9 @@ prints nothing when piped without a TTY (a display quirk, not a failure).
 `C:\Users\User\AppData\Roaming\Code\User\chatLanguageModels.json` adds OmniRoute as a
 Copilot "custom endpoint" provider (vendor `customendpoint`, apiType `chat`):
 - url `http://localhost:20128/v1/chat/completions`, apiKey `omni-local` (harmless placeholder).
-- Models `auto/best-coding`, `auto/best-fast`, `auto/best-reasoning`.
+- Models `auto/best-coding`, `auto/best-fast`, `auto/best-reasoning`, plus `oc/deepseek-v4-flash-free`
+  ("DeepSeek V4 Flash (Free)") — a direct free model that usually returns real text fast;
+  add it as a selection when a concrete reliable model is preferred over the `auto/*` router.
 
 Then in VS Code: **Copilot Chat → model picker → OmniRoute → Auto Best-Coding/Fast/Reasoning**.
 Copilot Chat is a built-in of VS Code 1.130 (github.copilot-chat v0.58+); the marketplace
