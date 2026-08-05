@@ -1,17 +1,18 @@
-import { classifyTopic } from './classify-topic.mjs';
 import { checkDuplicate } from './dedupe-check.mjs';
-import { isMain, isMediaPresent, printJson, readInput } from './lib.mjs';
+import { isMain, isMediaPresent, normalizeIncomingMedia, printJson, readInput } from './lib.mjs';
 import { logMetadata } from './log-metadata.mjs';
 import { prepareFbPost } from './post-to-fb-group.mjs';
 import { enqueueMediaJob } from './queue-worker.mjs';
 import { saveToMemory } from './save-to-memory.mjs';
+import { validateAgentRoute } from './validate-agent-route.mjs';
 
 export async function prepareDrop(input = {}) {
-  const classification = classifyTopic(input);
-  if (classification.needs_review && !input.memory_file && !input.category) {
+  input = normalizeIncomingMedia(input);
+  const classification = validateAgentRoute(input);
+  if (classification.needs_review) {
     return {
       status: 'needs_review',
-      reason: 'The deterministic classifier could not select a sufficiently reliable narrow destination.',
+      reason: 'The producer does not classify topics. The OpenClaw agent must inspect the content and supply a valid category + memory_file pair.',
       classification,
       wrote_memory: false,
     };
@@ -23,6 +24,9 @@ export async function prepareDrop(input = {}) {
     category: classification.category,
     memory_file: classification.memory_file,
     fb_group: classification.fb_group,
+    // Every accepted route is an intentional OpenClaw-agent decision. The
+    // producer only validates it and derives the exact group from the map.
+    route_override: true,
   };
   const dedupe = await checkDuplicate(enriched);
   const memoryDuplicate = Boolean(dedupe.memory_duplicate ?? dedupe.duplicate);
@@ -78,6 +82,7 @@ export async function prepareDrop(input = {}) {
           content_fingerprint: dedupe.content_fingerprint,
           canonical_urls: dedupe.canonical_urls,
           attachment_hashes: dedupe.attachment_hashes,
+          existing_queue_match: dedupe.active_queue_match,
           browser_profile: 'openclaw',
           log_metadata_input: logInput,
         });

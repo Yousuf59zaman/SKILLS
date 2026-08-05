@@ -41,7 +41,7 @@ node "$SKILL_DIR/scripts/opencode-sync.mjs" --target all --json
 Defaults can be overridden:
 
 ```bash
-node "$SKILL_DIR/scripts/opencode-sync.mjs" --default-model glm-5.2 --vision-model qwen3.7-plus --agents clawdbot_agent,openclawy_agent,moltbot_agent --apply
+node "$SKILL_DIR/scripts/opencode-sync.mjs" --default-model glm-5.2 --vision-model qwen3.7-plus --agents clawdbot_agent,openclawy_agent,moltbot_agent,molty-59 --apply
 ```
 
 ## Workflow
@@ -89,6 +89,6 @@ Expected Codex state:
 
 Expected OpenClaw state:
 
-- `opencode-go/glm-5.2` is primary for `clawdbot_agent`, `openclawy_agent`, and `moltbot_agent` unless a narrower agent list was requested.
+- `opencode-go/glm-5.2` is primary for `clawdbot_agent`, `openclawy_agent`, `moltbot_agent`, and `molty-59` unless a narrower agent list was requested.
 - `qwen3.7-plus` exists as a text+image model for vision work.
 - `main-cron` is not modified.

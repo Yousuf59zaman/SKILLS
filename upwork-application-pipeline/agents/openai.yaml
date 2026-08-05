@@ -1,0 +1,4 @@
+interface:
+  display_name: "Upwork Application Pipeline"
+  short_description: "Find, tailor, prepare, and safely submit proposals"
+  default_prompt: "Use $upwork-application-pipeline to find suitable Upwork jobs, show me the best options for approval, and prepare the approved application end to end."

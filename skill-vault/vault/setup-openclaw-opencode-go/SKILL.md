@@ -1,6 +1,6 @@
 ---
 name: setup-openclaw-opencode-go
-description: Configure and repair direct OpenCode Go usage in OpenClaw without Relay AI. Use when clawdbot_agent, openclawy_agent, or moltbot_agent must default to GLM-5.2, when main-cron must remain separately pinned to MiniMax M3, when model capability metadata is wrong, or when OpenClaw has drifted back to an OpenAI Codex or Relay-backed provider.
+description: Configure and repair direct OpenCode Go usage in OpenClaw without Relay AI. Use when clawdbot_agent, openclawy_agent, moltbot_agent, or molty-59 must default to GLM-5.2, when main-cron must remain separately pinned to MiniMax M3, when model capability metadata is wrong, or when OpenClaw has drifted back to an OpenAI Codex or Relay-backed provider.
 ---
 
 # Setup OpenClaw OpenCode Go
@@ -9,7 +9,7 @@ Keep OpenClaw on its native `opencode-go` provider. Do not route OpenClaw throug
 
 ## Required State
 
-- `clawdbot_agent`, `openclawy_agent`, and `moltbot_agent`: primary `opencode-go/glm-5.2` with full tools.
+- `clawdbot_agent`, `openclawy_agent`, `moltbot_agent`, and `molty-59`: primary `opencode-go/glm-5.2` with full tools.
 - `main-cron`: primary `opencode-go/minimax-m3`, separate from user-agent routing and auth rotation.
 - Model capabilities:
   - `glm-5.2`, `qwen3.7-max`, `kimi-k2.7-code`: text.
@@ -26,10 +26,10 @@ Keep OpenClaw on its native `opencode-go` provider. Do not route OpenClaw throug
 node "$env:USERPROFILE\.codex\skills\opencode-sync\scripts\opencode-sync.mjs" --target openclaw --json
 ```
 
-3. Apply only to the three user agents when direct OpenCode Go setup is missing:
+3. Apply only to the four user agents when direct OpenCode Go setup is missing:
 
 ```powershell
-node "$env:USERPROFILE\.codex\skills\opencode-sync\scripts\opencode-sync.mjs" --target openclaw --default-model glm-5.2 --vision-model qwen3.7-plus --agents clawdbot_agent,openclawy_agent,moltbot_agent --apply
+node "$env:USERPROFILE\.codex\skills\opencode-sync\scripts\opencode-sync.mjs" --target openclaw --default-model glm-5.2 --vision-model qwen3.7-plus --agents clawdbot_agent,openclawy_agent,moltbot_agent,molty-59 --apply
 ```
 
 4. Inspect `main-cron` separately. Preserve `opencode-go/minimax-m3` and empty model fallbacks; never include it in user-agent auth rotation.

@@ -1,8 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
+  activeRouteForMemoryFile,
   attachmentHashes,
-  canonicalUrlsFrom,
+  canonicalMediaUrls,
   dateDhaka,
   ensureParent,
   humanDhaka,
@@ -25,14 +26,18 @@ export async function saveToMemory(input = {}) {
   const workspace = input.workspace;
   const filePath = resolveMemoryFile(workspace, input.memory_file);
   const relativeFile = toMemoryRelative(workspace, filePath);
-  const mediaPresent = isMediaPresent(input);
-  const contentType = inferContentType(input);
-  const title = normalizeText(input.title) || fallbackTitle(input, contentType);
-  const dateSaved = normalizeText(input.date_saved) || nowDhaka();
-  const fbGroup = normalizeText(input.fb_group) || null;
+  const memoryRoute = activeRouteForMemoryFile(relativeFile);
+  const routedInput = memoryRoute
+    ? { ...input, category: memoryRoute.category, fb_group: memoryRoute.fb_group }
+    : input;
+  const mediaPresent = isMediaPresent(routedInput);
+  const contentType = inferContentType(routedInput);
+  const title = normalizeText(routedInput.title) || fallbackTitle(routedInput, contentType);
+  const dateSaved = normalizeText(routedInput.date_saved) || nowDhaka();
+  const fbGroup = normalizeText(routedInput.fb_group) || null;
   const protectedPath = isProtectedMemoryPath(relativeFile);
-  const duplicate = Boolean(input.duplicate ?? input.dedupe?.duplicate);
-  const hasNewInfo = Boolean(input.has_new_info);
+  const duplicate = Boolean(routedInput.duplicate ?? routedInput.dedupe?.duplicate);
+  const hasNewInfo = Boolean(routedInput.has_new_info);
 
   if (!title) throw new Error('title is required for a durable memory entry');
   if (protectedPath && fbGroup) throw new Error('Protected memory destinations cannot have an FB group');
@@ -43,20 +48,20 @@ export async function saveToMemory(input = {}) {
       skipped: 'duplicate_without_new_information',
       memory_file: relativeFile,
       date_saved: dateSaved,
-      metadata: mediaPresent ? createMetadata(input, {
+      metadata: mediaPresent ? createMetadata(routedInput, {
         title,
         dateSaved,
         fbGroup: null,
-        attachmentHashEntries: await attachmentHashes(input),
+        attachmentHashEntries: await attachmentHashes(routedInput),
       }) : null,
     };
   }
 
-  const hashEntries = mediaPresent ? await attachmentHashes(input) : [];
+  const hashEntries = mediaPresent ? await attachmentHashes(routedInput) : [];
   const metadata = mediaPresent
-    ? createMetadata(input, { title, dateSaved, fbGroup, attachmentHashEntries: hashEntries })
+    ? createMetadata(routedInput, { title, dateSaved, fbGroup, attachmentHashEntries: hashEntries })
     : null;
-  const block = buildMemoryBlock(input, {
+  const block = buildMemoryBlock(routedInput, {
     contentType,
     dateSaved,
     duplicate,
@@ -79,14 +84,14 @@ export async function saveToMemory(input = {}) {
     : `## ${dateDhaka(new Date(dateSaved))}\n\n`;
   const appendText = `${existing.endsWith('\n') || !existing ? '' : '\n'}${heading}${dayHeading}${block}\n`;
 
-  if (!input.dry_run) {
+  if (!routedInput.dry_run) {
     await ensureParent(filePath);
     await fs.appendFile(filePath, appendText, 'utf8');
   }
 
   return {
-    saved: !input.dry_run,
-    dry_run: Boolean(input.dry_run),
+    saved: !routedInput.dry_run,
+    dry_run: Boolean(routedInput.dry_run),
     memory_file: relativeFile,
     date_saved: dateSaved,
     entry_preview: block,
@@ -105,7 +110,7 @@ function createMetadata(input, { title, dateSaved, fbGroup, attachmentHashEntrie
     summary: normalizeText(input.summary) || normalizeText(input.text) || title,
     attachment_paths: normalizeAttachments(input),
     attachment_hashes: attachmentHashEntries,
-    canonical_urls: canonicalUrlsFrom(input.source, input.text, input.summary),
+    canonical_urls: canonicalMediaUrls(input),
     content_fingerprint: input.content_fingerprint ?? input.dedupe?.content_fingerprint ?? null,
   };
 }

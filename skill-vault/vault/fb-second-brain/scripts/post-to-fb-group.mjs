@@ -1,7 +1,8 @@
 import fs from 'node:fs/promises';
 import {
   EXACT_FB_GROUPS,
-  canonicalUrlsFrom,
+  activeRouteForMemoryFile,
+  canonicalMediaUrls,
   inferContentType,
   isMain,
   isMediaPresent,
@@ -15,13 +16,17 @@ import {
 const MAX_MESSENGER_FILE_BYTES = 25 * 1024 * 1024;
 
 export async function prepareFbPost(input = {}) {
-  const fbGroup = normalizeText(input.fb_group);
-  const contentType = inferContentType(input);
-  const attachments = normalizeAttachments(input);
-  const urls = canonicalUrlsFrom(input.source, input.text, input.summary);
+  const memoryRoute = activeRouteForMemoryFile(input.memory_file);
+  const routedInput = memoryRoute
+    ? { ...input, category: memoryRoute.category, fb_group: memoryRoute.fb_group }
+    : input;
+  const fbGroup = normalizeText(routedInput.fb_group);
+  const contentType = inferContentType(routedInput);
+  const attachments = normalizeAttachments(routedInput);
+  const urls = canonicalMediaUrls(routedInput);
 
-  if (input.duplicate) return blocked('duplicate', 'Duplicate content must not be reposted.', fbGroup);
-  if (!isMediaPresent(input)) return blocked('text_only', 'Text-only notes are memory-only.', fbGroup);
+  if (routedInput.duplicate) return blocked('duplicate', 'Duplicate content must not be reposted.', fbGroup);
+  if (!isMediaPresent(routedInput)) return blocked('text_only', 'Text-only notes are memory-only.', fbGroup);
   if (['image', 'video', 'audio'].includes(contentType) && attachments.length === 0) {
     return blocked('attachment_missing', `${contentType} content requires a local attachment path.`, fbGroup);
   }
@@ -31,10 +36,10 @@ export async function prepareFbPost(input = {}) {
   if (!fbGroup || !EXACT_FB_GROUPS.includes(fbGroup)) {
     return blocked('memory_only_or_unknown_group', 'No eligible active Messenger group was selected.', fbGroup || null);
   }
-  if (input.memory_file && isProtectedMemoryPath(input.memory_file)) {
+  if (routedInput.memory_file && isProtectedMemoryPath(routedInput.memory_file)) {
     return blocked('protected_memory', 'Protected/private memory destinations can never be posted.', fbGroup);
   }
-  if (requiresPrivacyReview(input) && !input.privacy_reviewed) {
+  if (requiresPrivacyReview(routedInput) && !routedInput.privacy_reviewed) {
     return blocked('privacy_review_required', 'Office/friend banter requires a privacy pass before posting.', fbGroup);
   }
 
@@ -53,13 +58,13 @@ export async function prepareFbPost(input = {}) {
     }
   }
 
-  const messageText = chooseMessageText(input, contentType, urls);
+  const messageText = chooseMessageText(routedInput, contentType, urls);
   return {
     ready: true,
     target_group: fbGroup,
     browser_handoff: {
       tool: 'OpenClaw browser',
-      profile: normalizeText(input.browser_profile) || 'openclaw2',
+      profile: normalizeText(routedInput.browser_profile) || 'openclaw2',
       visible: true,
       start_url: 'https://www.facebook.com/messages/',
       target_group: fbGroup,

@@ -16,7 +16,7 @@ Rotate auth profiles without changing model routes.
    - request B: `opencode-go:fallback-2`
    - request C: `opencode-go:fallback`
 4. Lock the selected fallback profile for all model attempts within one user request.
-5. Exclude `main-cron`; apply only to `clawdbot_agent`, `openclawy_agent`, and `moltbot_agent`.
+5. Exclude `main-cron`; apply only to `clawdbot_agent`, `openclawy_agent`, `moltbot_agent`, and `molty-59`.
 
 Use `Retry-After` when present. Otherwise block transient/rate-limit failures for 10 minutes and auth/key/permission failures for 30 minutes. Retry default after its block expires. If one fallback fails, use the other; if all are blocked, try the profile whose block expires soonest and surface the real provider error if all fail.
 

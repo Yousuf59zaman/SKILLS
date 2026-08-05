@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 
 const DEFAULT_MODEL = "glm-5.2";
 const DEFAULT_VISION_MODEL = "qwen3.7-plus";
-const DEFAULT_AGENTS = ["clawdbot_agent", "openclawy_agent", "moltbot_agent"];
+const DEFAULT_AGENTS = ["clawdbot_agent", "openclawy_agent", "moltbot_agent", "molty-59"];
 const OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
 
 const options = parseArgs(process.argv.slice(2));

@@ -34,7 +34,7 @@ Yousuf wants OpenClaw to use direct OpenCode Go auth/config, not Relay AI. Do no
 Safe OpenClaw rules:
 
 - Keep `main-cron` unchanged unless explicitly requested.
-- Set only `clawdbot_agent`, `openclawy_agent`, and `moltbot_agent` by default.
+- Set only `clawdbot_agent`, `openclawy_agent`, `moltbot_agent`, and `molty-59` by default.
 - Primary model for those agents: `opencode-go/glm-5.2`.
 - Ensure `opencode-go/qwen3.7-plus` is available and has `input: ["text", "image"]` for vision tasks.
 - Do not delete `openai-codex` provider globally if `main-cron` still depends on it.
@@ -58,6 +58,6 @@ If the OpenCode Go catalog is blocked by plugin allowlist, fix the OpenClaw plug
 ## Do Not Do These
 
 - Do not copy Codex OAuth/OpenAI auth profiles into OpenClaw for this OpenCode setup.
-- Do not remove `main-cron` Codex/OpenAI settings during a three-agent OpenCode fix.
+- Do not remove `main-cron` Codex/OpenAI settings during a four-agent OpenCode fix.
 - Do not claim Browser or MCP tools are unavailable until `tool_search` has been attempted for the deferred tool family.
 - Do not expose `OPENCODE_API_KEY`, Codex OAuth state, cookies, or bearer tokens in logs or final messages.

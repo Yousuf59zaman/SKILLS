@@ -3,8 +3,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
   DEFAULT_WORKSPACE,
+  activeRouteForMemoryFile,
   ensureParent,
   isMain,
+  mediaTitleSimilarity,
   normalizeAttachments,
   normalizeText,
   nowDhaka,
@@ -19,24 +21,56 @@ const QUEUE_RELATIVE_ROOT = path.join('.queue', 'fb-second-brain');
 const LOCK_TTL_MS = 80 * 60 * 1000;
 const DEFAULT_MAX_ATTEMPTS = 5;
 const SEQUENCE_LOCK_STALE_MS = 30 * 1000;
-const SEQUENCE_LOCK_WAIT_MS = 5 * 1000;
+const SEQUENCE_LOCK_WAIT_MS = 30 * 1000;
+const IDENTITY_LOCK_STALE_MS = 5 * 60 * 1000;
+const IDENTITY_LOCK_WAIT_MS = 30 * 1000;
 
 export async function enqueueMediaJob(input = {}) {
+  const memoryRoute = activeRouteForMemoryFile(input.memory_file);
+  if (memoryRoute) {
+    input = {
+      ...input,
+      category: memoryRoute.category,
+      fb_group: memoryRoute.fb_group,
+      log_metadata_input: input.log_metadata_input
+        ? {
+          ...input.log_metadata_input,
+          category: memoryRoute.category,
+          memory_file: normalizeText(input.memory_file),
+          fb_group: memoryRoute.fb_group,
+        }
+        : input.log_metadata_input,
+    };
+  }
   const locations = await ensureQueue(input);
   await ensureQueueNumbers(locations);
+  const identityKey = queueIdentityKey(input);
+  return withIdentityLock(locations, identityKey, () => enqueueMediaJobLocked(input, locations));
+}
+
+async function enqueueMediaJobLocked(input, locations) {
+  const activeMatch = input.existing_queue_match;
+  if (activeMatch?.job_id || Number.isInteger(activeMatch?.queue_number)) {
+    const existing = await findByIdentity(locations, activeMatch);
+    if (existing) {
+      return reuseExistingJob(
+        locations,
+        existing,
+        input,
+        normalizeText(activeMatch.matched_by) || 'dedupe_check',
+      );
+    }
+  }
   const fingerprint = normalizeText(input.content_fingerprint);
   if (fingerprint) {
     const existing = await findByFingerprint(locations, fingerprint);
     if (existing) {
-      return {
-        queued: false,
-        skipped: 'already_queued',
-        job_id: existing.job.id,
-        queue_number: existing.job.queue_number,
-        queue_state: existing.state,
-        queue_root: toWorkspaceRelative(locations.workspace, locations.root),
-      };
+      return reuseExistingJob(locations, existing, input, 'content_fingerprint');
     }
+  }
+  const equivalent = await findEquivalentJob(locations, input);
+  if (equivalent) {
+    return reuseExistingJob(locations, equivalent, input, equivalent.matched_by);
   }
 
   const jobId = makeJobId();
@@ -442,10 +476,166 @@ async function findByFingerprint(locations, fingerprint) {
     ['failed', locations.failed],
   ]) {
     for (const candidate of await listJobs(directory)) {
-      if (candidate.job.content_fingerprint === fingerprint) return { state, job: candidate.job };
+      if (candidate.job.content_fingerprint === fingerprint) return { state, ...candidate };
     }
   }
   return null;
+}
+
+async function findByIdentity(locations, identity) {
+  for (const [state, directory] of [
+    ['pending', locations.pending],
+    ['processing', locations.processing],
+    ['failed', locations.failed],
+  ]) {
+    for (const candidate of await listJobs(directory)) {
+      if (identity.job_id && candidate.job.id === identity.job_id) return { state, ...candidate };
+      if (Number.isInteger(identity.queue_number) && candidate.job.queue_number === identity.queue_number) {
+        return { state, ...candidate };
+      }
+    }
+  }
+  return null;
+}
+
+async function findEquivalentJob(locations, input) {
+  for (const [state, directory] of [
+    ['pending', locations.pending],
+    ['processing', locations.processing],
+    ['failed', locations.failed],
+  ]) {
+    for (const candidate of await listJobs(directory)) {
+      const matchedBy = equivalentJobMatch(candidate.job, input);
+      if (matchedBy) return { state, ...candidate, matched_by: matchedBy };
+    }
+  }
+  return null;
+}
+
+async function reuseExistingJob(locations, existing, input, matchedBy) {
+  const previousGroup = normalizeText(existing.job.fb_group);
+  const desiredGroup = normalizeText(input.fb_group);
+  const desiredMemory = normalizeText(input.memory_file);
+  const desiredCategory = normalizeText(input.category);
+  const mappedRoute = activeRouteForMemoryFile(desiredMemory);
+  const existingMappedRoute = activeRouteForMemoryFile(existing.job.memory_file);
+  const mapCorrectionRequired = Boolean(
+    mappedRoute
+    && normalizedRoute(existing.job.memory_file) === normalizedRoute(desiredMemory)
+    && previousGroup !== desiredGroup,
+  );
+  const specificityUpgrade = Boolean(
+    mappedRoute
+    && !['favorite', 'others'].includes(mappedRoute.category)
+    && (!existingMappedRoute || ['favorite', 'others'].includes(existingMappedRoute.category)),
+  );
+  const routeChanged = (input.route_override === true || mapCorrectionRequired || specificityUpgrade)
+    && existing.state !== 'processing'
+    && desiredGroup
+    && (
+      previousGroup !== desiredGroup
+      || normalizedRoute(existing.job.memory_file) !== normalizedRoute(desiredMemory)
+      || normalizeText(existing.job.category) !== desiredCategory
+    );
+  let job = existing.job;
+  let routeUpdated = false;
+
+  if (routeChanged) {
+    const postManifest = await prepareFbPost({
+      ...existing.job,
+      ...input,
+      attachment_paths: normalizeStringArray(existing.job.attachment_paths),
+      browser_profile: normalizeText(input.browser_profile) || 'openclaw',
+    });
+    if (postManifest.ready) {
+      const incomingTags = normalizeStringArray(input.tags);
+      const incomingUrls = normalizeStringArray(input.canonical_urls);
+      job = {
+        ...existing.job,
+        type: normalizeText(input.type ?? input.content_type) || normalizeText(existing.job.type),
+        title: normalizeText(input.title) || normalizeText(existing.job.title),
+        text: normalizeText(input.text) || normalizeText(existing.job.text),
+        source: normalizeText(input.source) || normalizeText(existing.job.source),
+        summary: normalizeText(input.summary) || normalizeText(existing.job.summary),
+        tags: incomingTags.length ? incomingTags : normalizeStringArray(existing.job.tags),
+        category: desiredCategory,
+        memory_file: desiredMemory,
+        fb_group: desiredGroup,
+        post_text: normalizeText(input.post_text ?? input.accompanying_text),
+        privacy_reviewed: Boolean(input.privacy_reviewed),
+        canonical_urls: incomingUrls.length ? incomingUrls : normalizeStringArray(existing.job.canonical_urls),
+        post_manifest: postManifest,
+        log_metadata_input: {
+          ...(existing.job.log_metadata_input ?? {}),
+          ...(input.log_metadata_input ?? {}),
+          category: desiredCategory,
+          memory_file: desiredMemory,
+          fb_group: desiredGroup,
+          attachment_paths: normalizeStringArray(existing.job.original_attachment_paths),
+          attachment_hashes: existing.job.attachment_hashes ?? [],
+          content_fingerprint: existing.job.content_fingerprint ?? null,
+        },
+        route_updated_at: nowDhaka(),
+      };
+      await writeJsonAtomic(existing.file, job);
+      await appendEvent(locations, {
+        event: 'route_updated',
+        job_id: job.id,
+        queue_number: job.queue_number,
+        from_group: previousGroup,
+        to_group: desiredGroup,
+        from_memory_file: normalizeText(existing.job.memory_file),
+        to_memory_file: desiredMemory,
+        from_category: normalizeText(existing.job.category),
+        to_category: desiredCategory,
+        matched_by: matchedBy,
+      });
+      routeUpdated = true;
+    }
+  }
+
+  return {
+    queued: false,
+    skipped: 'already_queued',
+    matched_by: matchedBy,
+    job_id: job.id,
+    queue_number: job.queue_number,
+    queue_state: existing.state,
+    queue_root: toWorkspaceRelative(locations.workspace, locations.root),
+    target_group: normalizeText(job.fb_group),
+    route_updated: routeUpdated,
+    previous_target_group: routeUpdated ? previousGroup : null,
+    post_manifest: job.post_manifest ?? null,
+  };
+}
+
+function equivalentJobMatch(job, input) {
+  const inputUrls = new Set(normalizeStringArray(input.canonical_urls));
+  const jobUrls = new Set(normalizeStringArray(job.canonical_urls));
+  if ([...inputUrls].some((value) => jobUrls.has(value))) return 'canonical_url';
+
+  const inputHashes = normalizedHashSet(input.attachment_hashes);
+  const jobHashes = normalizedHashSet(job.attachment_hashes);
+  if ([...inputHashes].some((value) => jobHashes.has(value))) return 'attachment_hash';
+
+  const inputHasAttachment = normalizeAttachments(input).length > 0 || inputHashes.size > 0;
+  const jobHasAttachment = normalizeStringArray(job.original_attachment_paths).length > 0 || jobHashes.size > 0;
+  if (!inputHasAttachment || !jobHasAttachment) return null;
+  const inputMemory = normalizedRoute(input.memory_file);
+  const jobMemory = normalizedRoute(job.memory_file);
+  if (!inputMemory || !jobMemory || inputMemory !== jobMemory) return null;
+  return mediaTitleSimilarity(input.title, job.title).similar ? 'similar_media_title' : null;
+}
+
+function normalizedHashSet(value) {
+  const values = Array.isArray(value) ? value : value ? [value] : [];
+  return new Set(values.map((item) => normalizeText(
+    typeof item === 'string' ? item : item?.sha256 ?? item?.hash,
+  )).filter(Boolean));
+}
+
+function normalizedRoute(value) {
+  return normalizeText(value).toLocaleLowerCase('en-US').replace(/\\/g, '/');
 }
 
 async function ensureQueueNumbers(locations) {
@@ -518,6 +708,81 @@ async function writeSequence(locations, lastAssigned) {
   });
 }
 
+function queueIdentityKey(input) {
+  const activeMatch = input.existing_queue_match;
+  const activeIdentity = normalizeText(activeMatch?.job_id)
+    || (Number.isInteger(activeMatch?.queue_number) ? `queue:${activeMatch.queue_number}` : '');
+  const urls = normalizeStringArray(input.canonical_urls).sort();
+  const hashes = (Array.isArray(input.attachment_hashes) ? input.attachment_hashes : [])
+    .flatMap((item) => [
+      normalizeText(typeof item === 'string' ? item : item?.sha256),
+      normalizeText(typeof item === 'object' ? item?.perceptual_hash : ''),
+    ])
+    .filter(Boolean)
+    .sort();
+  const fingerprint = normalizeText(input.content_fingerprint);
+  const identity = activeIdentity
+    ? `active:${activeIdentity}`
+    : urls.length
+      ? `urls:${urls.join('|')}`
+      : hashes.length
+        ? `hashes:${hashes.join('|')}`
+        : fingerprint
+          ? `fingerprint:${fingerprint}`
+          : [
+              `memory:${normalizedRoute(input.memory_file)}`,
+              `source:${normalizeText(input.source)}`,
+              `title:${normalizeText(input.title).toLocaleLowerCase('en-US')}`,
+            ].join('|');
+  return crypto.createHash('sha256').update(identity).digest('hex');
+}
+
+async function withIdentityLock(locations, identityKey, run) {
+  const lockPath = path.join(locations.staging, `.identity-${identityKey}.lock`);
+  const deadline = Date.now() + IDENTITY_LOCK_WAIT_MS;
+  let handle = null;
+
+  while (Date.now() < deadline) {
+    try {
+      handle = await fs.open(lockPath, 'wx');
+      await handle.writeFile(`${JSON.stringify({ pid: process.pid, created_at: nowDhaka() })}\n`, 'utf8');
+      break;
+    } catch (error) {
+      await handle?.close().catch(() => {});
+      handle = null;
+      if (!isTransientLockError(error)) throw error;
+      const stat = await fs.stat(lockPath).catch(() => null);
+      if (stat && Date.now() - stat.mtimeMs > IDENTITY_LOCK_STALE_MS) {
+        await fs.rm(lockPath, { force: true }).catch((removeError) => {
+          if (!isTransientLockError(removeError) && removeError?.code !== 'ENOENT') throw removeError;
+        });
+        continue;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+  if (!handle) throw new Error('Timed out waiting for the queue content-identity lock');
+
+  try {
+    return await run();
+  } finally {
+    await handle.close().catch(() => {});
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      try {
+        await fs.rm(lockPath, { force: true });
+        break;
+      } catch (error) {
+        if (!isTransientLockError(error)) break;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
+  }
+}
+
+function isTransientLockError(error) {
+  return ['EEXIST', 'EPERM', 'EACCES', 'EBUSY'].includes(error?.code);
+}
+
 async function withSequenceLock(locations, run) {
   const handle = await acquireSequenceLock(locations);
   try {
@@ -536,10 +801,16 @@ async function acquireSequenceLock(locations) {
       await handle.writeFile(`${JSON.stringify({ pid: process.pid, created_at: nowDhaka() })}\n`, 'utf8');
       return handle;
     } catch (error) {
-      if (error?.code !== 'EEXIST') throw error;
+      // Windows can surface a contested create-new lock as EPERM/EACCES/EBUSY
+      // instead of EEXIST while another process still owns the file handle.
+      // They are safe to treat as bounded contention here; genuinely unusable
+      // paths still fail with the explicit timeout below.
+      if (!isTransientLockError(error)) throw error;
       const stat = await fs.stat(locations.sequenceLock).catch(() => null);
       if (stat && Date.now() - stat.mtimeMs > SEQUENCE_LOCK_STALE_MS) {
-        await fs.rm(locations.sequenceLock, { force: true });
+        await fs.rm(locations.sequenceLock, { force: true }).catch((removeError) => {
+          if (!isTransientLockError(removeError) && removeError?.code !== 'ENOENT') throw removeError;
+        });
         continue;
       }
       await new Promise((resolve) => setTimeout(resolve, 25));

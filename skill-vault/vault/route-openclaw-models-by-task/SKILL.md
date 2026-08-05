@@ -1,11 +1,11 @@
 ---
 name: route-openclaw-models-by-task
-description: Audit, repair, and test OpenClaw dynamic model selection by task category. Use when the three user agents must route coding to GLM-5.2, vision/browser/MCP/CLI/docs to Qwen 3.7 Plus, planning/security/review to Qwen 3.7 Max, video to MiniMax M3, while main-cron remains MiniMax M3-only.
+description: Audit, repair, and test OpenClaw dynamic model selection by task category. Use when the four user agents must route coding to GLM-5.2, vision/browser/MCP/CLI/docs to Qwen 3.7 Plus, planning/security/review to Qwen 3.7 Max, video to MiniMax M3, while main-cron remains MiniMax M3-only.
 ---
 
 # Route OpenClaw Models by Task
 
-Apply this routing contract only to `clawdbot_agent`, `openclawy_agent`, and `moltbot_agent`:
+Apply this routing contract to `clawdbot_agent`, `openclawy_agent`, `moltbot_agent`, and `molty-59`:
 
 | Task | Primary model |
 |---|---|
@@ -47,7 +47,7 @@ node "$env:USERPROFILE\.openclaw\workspace\plugins\task-complexity-router\route-
 & "$env:APPDATA\npm\openclaw.cmd" config validate --json
 ```
 
-5. Run fresh-session live probes for representative coding, visual, tool-heavy, planning, security, docs, video, and cron prompts. Confirm the selected model from logs or JSON.
+5. Run fresh-session live probes for representative coding, visual, tool-heavy, planning, security, docs, video, and cron prompts. Confirm the selected model from logs or JSON. Include `molty-59` in the managed user-agent probes.
 
 ## Guardrails
 

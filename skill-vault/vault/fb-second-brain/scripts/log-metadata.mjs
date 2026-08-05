@@ -3,8 +3,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
   EXACT_FB_GROUPS,
+  activeRouteForMemoryFile,
   attachmentHashes,
-  canonicalUrlsFrom,
+  canonicalMediaUrls,
   ensureParent,
   isMain,
   isMediaPresent,
@@ -24,9 +25,10 @@ export async function logMetadata(input = {}) {
 
   const workspace = input.workspace;
   const logPath = path.join(workspace, 'memory', 'fb_second_brain_log.jsonl');
-  const postStatus = normalizeText(input.post_status) || inferStatus(input);
-  const fbGroup = normalizeText(input.fb_group) || null;
   const memoryFile = normalizeText(input.memory_file) || null;
+  const memoryRoute = activeRouteForMemoryFile(memoryFile);
+  const fbGroup = (memoryRoute?.fb_group ?? normalizeText(input.fb_group)) || null;
+  const postStatus = normalizeText(input.post_status) || inferStatus({ ...input, fb_group: fbGroup });
   if (!POST_STATUSES.has(postStatus)) throw new Error(`Invalid post_status: ${postStatus}`);
   if (fbGroup && !EXACT_FB_GROUPS.includes(fbGroup)) throw new Error(`Unknown FB group: ${fbGroup}`);
   if (memoryFile && isProtectedMemoryPath(memoryFile) && fbGroup) {
@@ -38,7 +40,7 @@ export async function logMetadata(input = {}) {
     : await attachmentHashes(input);
   const entry = {
     title: normalizeText(input.title) || 'Untitled media drop',
-    category: normalizeText(input.category) || 'unknown',
+    category: (memoryRoute?.category ?? normalizeText(input.category)) || 'unknown',
     source: normalizeText(input.source) || 'Telegram',
     date_saved: normalizeText(input.date_saved) || nowDhaka(),
     tags: normalizeTags(input.tags),
@@ -46,9 +48,7 @@ export async function logMetadata(input = {}) {
     summary: normalizeText(input.summary) || normalizeText(input.text) || normalizeText(input.title),
     attachment_paths: normalizeAttachments(input),
     memory_file: memoryFile,
-    canonical_urls: normalizeStringArray(input.canonical_urls).length
-      ? normalizeStringArray(input.canonical_urls)
-      : canonicalUrlsFrom(input.source, input.text, input.summary),
+    canonical_urls: canonicalMediaUrls(input),
     attachment_hashes: calculatedAttachmentHashes,
     content_fingerprint: normalizeText(input.content_fingerprint) || null,
     duplicate: Boolean(input.duplicate),
@@ -84,11 +84,6 @@ function inferStatus(input) {
 }
 
 function normalizeTags(value) {
-  const list = Array.isArray(value) ? value : value ? [value] : [];
-  return [...new Set(list.map(normalizeText).filter(Boolean))];
-}
-
-function normalizeStringArray(value) {
   const list = Array.isArray(value) ? value : value ? [value] : [];
   return [...new Set(list.map(normalizeText).filter(Boolean))];
 }
