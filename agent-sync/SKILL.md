@@ -154,13 +154,14 @@ node skills/agent-sync/scripts/sync-codex-antigravity-mcp.mjs
 What it does:
 
 - Reads Codex MCPs from `%USERPROFILE%\.codex\config.toml`.
+- Reads Claude Code MCPs from `%USERPROFILE%\.claude.json` (under `mcpServers`; the rest of the file is preserved untouched).
 - Reads Antigravity MCPs from `%APPDATA%\Antigravity\User\mcp.json`.
-- Reads VSCode MCPs from `%APPDATA%\Code\User\mcp.json`.
+- Reads VSCode (GitHub Copilot) MCPs from `%APPDATA%\Code\User\mcp.json`.
 - Reads OpenCode MCPs from `%USERPROFILE%\.config\opencode\opencode.jsonc` (JSONC with comments stripped before parsing).
-- Computes the union across all four targets and adds missing servers to whichever target lacks them.
+- Computes the union across **all five targets** (Codex, Claude, Antigravity, VSCode, OpenCode) and adds missing servers to whichever target lacks them.
 - Creates `.bak-*` backups before writing.
 - Reports same-name differences as conflicts instead of overwriting.
-- Converts between formats: Codex `env_vars = ["NAME"]` to JSON `${env:NAME}` for Antigravity/VSCode and to `{env:NAME}` for OpenCode; OpenCode `command` arrays are split into `command` + `args` when writing to other targets; OpenCode `environment` key maps to `env` in other targets.
+- Converts between formats: Codex `env_vars = ["NAME"]` to JSON `${env:NAME}` for Antigravity/VSCode/Claude and to `{env:NAME}` for OpenCode; OpenCode `command` arrays are split into `command` + `args` when writing to other targets; OpenCode `environment` key maps to `env` in other targets; HTTP/remote servers get `type: "http"` when written to Claude's `mcpServers`.
 
 Useful commands:
 
@@ -181,10 +182,11 @@ What it does:
 
 - Reads Codex terminal PATH from `%USERPROFILE%\.codex\config.toml`.
 - Reads Antigravity terminal PATH from `%APPDATA%\Antigravity\User\settings.json`.
-- Reads VSCode terminal PATH from `%APPDATA%\Code\User\settings.json`.
+- Reads VSCode (GitHub Copilot) terminal PATH from `%APPDATA%\Code\User\settings.json`.
 - Discovers installed CLI commands from the configured paths, current PATH, and known local CLI dirs.
-- Ensures Codex, Antigravity, and VSCode can all see the CLI directories that expose those tools.
+- Ensures Codex, Antigravity, and VSCode all get the CLI directories that expose those tools.
 - Keeps Antigravity and VSCode inheriting `${env:Path}`.
+- **Claude Code and OpenCode have no terminal PATH config file** — they inherit the OS/user PATH, so the sync verifies (not writes) them; once the CLI dirs are in Codex/Antigravity/VSCode and the OS PATH, those two agents pick them up automatically.
 - Creates `.bak-*` backups before writing.
 - Reports missing CLI commands instead of trying to install them.
 

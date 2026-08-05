@@ -8,6 +8,7 @@ const APPDATA = process.env.APPDATA || path.join(HOME, 'AppData', 'Roaming');
 const LOCALAPPDATA = process.env.LOCALAPPDATA || path.join(HOME, 'AppData', 'Local');
 const DEFAULT_CODEX_CONFIG = path.join(HOME, '.codex', 'config.toml');
 const DEFAULT_AG_SETTINGS = path.join(APPDATA, 'Antigravity', 'User', 'settings.json');
+const DEFAULT_VSCODE_SETTINGS = path.join(APPDATA, 'Code', 'User', 'settings.json');
 const DEFAULT_CLI_NAMES = [
   'codex', 'git', 'gh', 'docker', 'kubectl', 'helm', 'terraform',
   'supabase', 'vercel', 'postman', 'pnpm', 'uv', 'rg', 'jq',
@@ -30,7 +31,7 @@ const DEFAULT_DIRS = [
 const PATH_MACRO = '${env:Path}';
 
 function usage(exitCode = 0) {
-  console.log(`Usage: node scripts/sync-codex-antigravity-cli.mjs [options]\n\nSynchronize CLI PATH access between Codex and Antigravity terminals.\nDefault mode is dry-run; use --apply to write changes.\n\nOptions:\n  --apply                         Update Codex config + Antigravity settings.\n  --json                          Print machine-readable summary.\n  --codex-config <path>            Override Codex config.toml path.\n  --antigravity-settings <path>    Override Antigravity User/settings.json path.\n  --cli <name[,name...]>           Add CLI names to verify/discover. Can repeat.\n  --path <dir>                     Add an explicit directory to sync. Can repeat.\n  --no-backup                      Do not create .bak-* files before writing.\n  --help                           Show help.\n\nDefaults:\n  Codex config:          ${DEFAULT_CODEX_CONFIG}\n  Antigravity settings:  ${DEFAULT_AG_SETTINGS}\n`);
+  console.log(`Usage: node scripts/sync-codex-antigravity-cli.mjs [options]\n\nSynchronize CLI PATH access across Codex, Antigravity, and VS Code terminals.\nClaude Code and OpenCode inherit the OS PATH, so they are verified, not written.\nDefault mode is dry-run; use --apply to write changes.\n\nOptions:\n  --apply                         Update Codex config + Antigravity/VS Code settings.\n  --json                          Print machine-readable summary.\n  --codex-config <path>            Override Codex config.toml path.\n  --antigravity-settings <path>    Override Antigravity User/settings.json path.\n  --vscode-settings <path>         Override VSCode User/settings.json path.\n  --cli <name[,name...]>           Add CLI names to verify/discover. Can repeat.\n  --path <dir>                     Add an explicit directory to sync. Can repeat.\n  --no-backup                      Do not create .bak-* files before writing.\n  --help                           Show help.\n\nDefaults:\n  Codex config:          ${DEFAULT_CODEX_CONFIG}\n  Antigravity settings:  ${DEFAULT_AG_SETTINGS}\n  VSCode settings:       ${DEFAULT_VSCODE_SETTINGS}\n`);
   process.exit(exitCode);
 }
 
@@ -41,6 +42,7 @@ function parseArgs(argv) {
     backup: true,
     codexConfig: DEFAULT_CODEX_CONFIG,
     antigravitySettings: DEFAULT_AG_SETTINGS,
+    vscodeSettings: DEFAULT_VSCODE_SETTINGS,
     cliNames: [...DEFAULT_CLI_NAMES],
     explicitPaths: [],
   };
@@ -56,12 +58,14 @@ function parseArgs(argv) {
     else if (a === '--no-backup') opts.backup = false;
     else if (a === '--codex-config') opts.codexConfig = next();
     else if (a === '--antigravity-settings') opts.antigravitySettings = next();
+    else if (a === '--vscode-settings') opts.vscodeSettings = next();
     else if (a === '--cli') opts.cliNames.push(...next().split(',').map(s => s.trim()).filter(Boolean));
     else if (a === '--path') opts.explicitPaths.push(next());
     else throw new Error(`Unknown option: ${a}`);
   }
   opts.codexConfig = path.resolve(expandPath(opts.codexConfig));
   opts.antigravitySettings = path.resolve(expandPath(opts.antigravitySettings));
+  opts.vscodeSettings = path.resolve(expandPath(opts.vscodeSettings));
   opts.explicitPaths = opts.explicitPaths.map(p => path.resolve(expandPath(p)));
   opts.cliNames = [...new Set(opts.cliNames.map(s => s.trim()).filter(Boolean))];
   return opts;
@@ -299,6 +303,8 @@ function main() {
   const codex = parseCodexPath(opts.codexConfig);
   const agText = readTextIfExists(opts.antigravitySettings);
   const ag = extractAntigravityPath(agText);
+  const vsText = readTextIfExists(opts.vscodeSettings);
+  const vs = extractAntigravityPath(vsText);
 
   const processPathEntries = splitPathValue(process.env.Path || process.env.PATH || '');
   const candidateSearchDirs = uniqueEntries([
@@ -306,6 +312,7 @@ function main() {
     ...DEFAULT_DIRS,
     ...codex.entries,
     ...ag.entries,
+    ...vs.entries,
     ...processPathEntries,
   ]);
   const discovered = discoverCommands(opts.cliNames, candidateSearchDirs);
@@ -318,37 +325,46 @@ function main() {
 
   const targetCodexEntries = mergePathEntries(codex.entries, configuredDirs);
   const targetAgEntries = mergePathEntries(ag.entries, configuredDirs, { appendMacro: true });
+  const targetVsEntries = mergePathEntries(vs.entries, configuredDirs, { appendMacro: true });
   const targetCodexPath = targetCodexEntries.join(';');
   const targetAgPath = targetAgEntries.join(';');
+  const targetVsPath = targetVsEntries.join(';');
 
   const codexChanged = targetCodexPath !== codex.pathValue;
   const agChanged = targetAgPath !== ag.pathValue;
+  const vsChanged = targetVsPath !== vs.pathValue;
   const result = {
     mode: opts.apply ? 'apply' : 'dry-run',
-    paths: { codexConfig: opts.codexConfig, antigravitySettings: opts.antigravitySettings },
+    paths: { codexConfig: opts.codexConfig, antigravitySettings: opts.antigravitySettings, vscodeSettings: opts.vscodeSettings },
     counts: {
       codexPathEntries: codex.entries.length,
       antigravityPathEntries: ag.entries.length,
+      vscodePathEntries: vs.entries.length,
       syncDirs: configuredDirs.length,
       foundCli: Object.keys(discovered.found).length,
       missingCli: discovered.missing.length,
     },
-    changes: { codexPath: codexChanged, antigravityPath: agChanged },
+    changes: { codexPath: codexChanged, antigravityPath: agChanged, vscodePath: vsChanged },
     syncDirs: configuredDirs,
     foundCli: discovered.found,
     missingCli: discovered.missing,
     backups: {},
   };
 
-  if (opts.apply && (codexChanged || agChanged)) {
+  if (opts.apply && (codexChanged || agChanged || vsChanged)) {
     if (opts.backup) {
       if (codexChanged) result.backups.codexConfig = backupFile(opts.codexConfig);
       if (agChanged) result.backups.antigravitySettings = backupFile(opts.antigravitySettings);
+      if (vsChanged) result.backups.vscodeSettings = backupFile(opts.vscodeSettings);
     }
     if (codexChanged) updateCodexPath(codex, opts.codexConfig, targetCodexPath);
     if (agChanged) {
       ensureParent(opts.antigravitySettings);
       fs.writeFileSync(opts.antigravitySettings, updateAntigravityPath(agText, targetAgPath), 'utf8');
+    }
+    if (vsChanged) {
+      ensureParent(opts.vscodeSettings);
+      fs.writeFileSync(opts.vscodeSettings, updateAntigravityPath(vsText, targetVsPath), 'utf8');
     }
   }
 
@@ -359,6 +375,7 @@ function main() {
 
   console.log(`Codex PATH entries: ${codex.entries.length}`);
   console.log(`Antigravity terminal PATH entries: ${ag.entries.length}`);
+  console.log(`VSCode terminal PATH entries: ${vs.entries.length}`);
   console.log(`Syncable CLI directories: ${configuredDirs.length}`);
   if (configuredDirs.length) {
     console.log('\nDirectories synced/kept:');
@@ -369,14 +386,16 @@ function main() {
   if (discovered.missing.length) {
     console.log(`\nMissing CLI commands (not installed or not discoverable): ${discovered.missing.join(', ')}`);
   }
-  if (!codexChanged && !agChanged) console.log('\nCLI PATH union already synced.');
+  console.log('\nClaude Code and OpenCode inherit the OS PATH (no terminal PATH config file); they pick up these dirs automatically.');
+  if (!codexChanged && !agChanged && !vsChanged) console.log('\nCLI PATH union already synced.');
   else {
     if (codexChanged) console.log('\nCodex PATH would be updated.');
     if (agChanged) console.log('Antigravity terminal PATH would be updated.');
+    if (vsChanged) console.log('VSCode terminal PATH would be updated.');
     if (!opts.apply) console.log('Dry-run only. Re-run with --apply to write changes.');
   }
   if (opts.apply) {
-    console.log(codexChanged || agChanged ? '\nApplied CLI PATH sync.' : '\nNo changes needed.');
+    console.log(codexChanged || agChanged || vsChanged ? '\nApplied CLI PATH sync.' : '\nNo changes needed.');
     for (const [label, backup] of Object.entries(result.backups)) if (backup) console.log(`Backup ${label}: ${backup}`);
   }
 }
