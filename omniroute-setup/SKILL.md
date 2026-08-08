@@ -118,6 +118,45 @@ Keep the existing `OpenCode Go` provider entry when editing the file.
      (NOT `antigravity-ide`, which is the IDE). Injects models via a local Cloud Code gateway
      (port 5770); runs a Relay-managed isolated profile at `~/.relay-ai/antigravity/app-profile`.
 
+### OpenRouter (Free) provider
+
+Second relay-ai provider for codex/claude/antigravity apps. Uses OpenRouter's `:free` models
+(no credits consumed — only a non-negative account balance + a valid key).
+
+Facts (from https://openrouter.ai/docs/limits):
+- Free = model id ending in `:free`; ~14 free models available on the account.
+- Rate limits are request-based (no token/day cap): **20 req/min**, and **50 req/day** by
+  default or **1,000 req/day** after buying ≥ $10 credits. Cap → HTTP 429 (or SSE
+  `finish_reason:"error"` mid-stream); fallback routing can absorb it.
+- Requires `Authorization: Bearer <OPENROUTER_API_KEY>` (env `OPENROUTER_API_KEY`).
+
+Setup in `~/.relay-ai/providers.json` (backup first):
+```json
+{
+  "id": "openrouter",
+  "templateId": "openrouter",
+  "name": "OpenRouter (Free)",
+  "enabled": true,
+  "authRef": "keyring:global:openrouter",
+  "authType": "api",
+  "api": { "url": "https://openrouter.ai/api/v1", "npm": "@openrouter/ai-sdk-provider" },
+  "modelsCache": { "fetchedAt": "<now>", "models": [ { "id": "cohere/north-mini-code:free", ... } ] }
+}
+```
+- Populate `modelsCache` from `GET https://openrouter.ai/api/v1/models` (Bearer key), filtered
+  to ids ending in `:free`.
+- Credential in `~/.relay-ai/secrets.json`: `"global:openrouter": "<OPENROUTER_API_KEY>"`
+  (read key from env; never print it).
+
+Usage:
+```bash
+relay-ai claude --provider openrouter --model cohere/north-mini-code:free -p "task"
+relay-ai codex --provider openrouter --model cohere/north-mini-code:free exec "task"
+relay-ai antigravity --provider openrouter --model cohere/north-mini-code:free
+```
+Notes: free models may burn tokens on reasoning and return empty `content` at low
+`max_tokens`; `relay-ai codex exec` stdout is quirky (provider still routes).
+
 ## Verification (quick checklist)
 
 ```bash
