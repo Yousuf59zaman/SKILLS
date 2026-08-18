@@ -30,7 +30,11 @@ Do not inflate the score. List the top two weaknesses and fix them when possible
 - [ ] Live/repository links work and match the description.
 - [ ] The exact LeAPS URL (`https://leaps-nuxt-dashboard.vercel.app`) appears once in the cover letter, was rechecked without the owner session, and uses truthful full-stack portfolio/reviewer-mode wording (Nuxt 4, NestJS, Prisma/PostgreSQL) without implying an OrangeBD or client production backend; any omission is explained by unavailability, safety, or an explicit user instruction.
 - [ ] The exact Accessimate Admin Panel URL (`https://accessimate-admin-panel-nextjs.vercel.app`) appears once in the cover letter, was rechecked without the owner session, and uses truthful public reviewer-mode wording (Next.js 16, React 19, NestJS 11, Prisma/PostgreSQL, admin/citizen panels) without implying a client-owned production system; its existing project name, product branding, and URL remain unchanged, and it is not labeled Next.js Multi Panel.
-- [ ] When recruiter/HR-tech/search or the matching Next.js/NestJS/Prisma/PostgreSQL stack is relevant, the exact TalentScope live URL (`https://talentscope-recruiter-platform.vercel.app`) was rechecked and appears once with independent-portfolio and fictional-data wording; any claims about persistent comments, generated PDF CVs, or transactional single/bulk unlocks match the verified deployment; the GitHub URL is included only when source evidence helps, and no official Bdjobs/client-production claim is made.
+- [ ] The exact HeyHomeX Next + Nest Platform URL (`https://heyhomex-next-nest-platform.vercel.app`) appears once, was rechecked without the owner session, and its reviewer entry works. It is described as Yousuf's independent full-stack reviewer conversion based on his contribution to OrangeBD's real HeyHomeX platform, using Next.js 16, React 19, NestJS 11, Prisma/PostgreSQL, HttpOnly reviewer sessions, role-based workflows, and fictional seeded data; the no-production-site/API/backend distinction is explicit, and neither the official OrangeBD HeyHomeX domain nor the retired Nuxt reviewer URL is used as proposal proof.
+- [ ] The exact TalentScope dashboard URL (`https://talentscope-recruiter-platform.vercel.app/dashboard`) appears once in the cover letter and was rechecked without the owner session. Its wording distinguishes Yousuf's verified Bdjobs Talent Search/CV Bank contribution (Angular/ASP.NET Core recruiter, resume-purchase, and subscription-access workflows) from the linked independent Next.js/NestJS/Prisma/PostgreSQL reviewer build with fictional resettable data; persistent comments, generated fictional PDF CVs, and transactional single/bulk unlocks are claimed only when currently verified, and no official Bdjobs/client-production or real-candidate-data claim is made.
+- [ ] Accessimate Admin Panel, HeyHomeX Next + Nest Platform, TalentScope Recruiter Platform, and LeAPS appear before any job-specific `.chatgpt.site` URL; every reviewer project has one concise relevance sentence; all four deployments are distinguished from OrangeBD/Bdjobs production systems; and the `.chatgpt.site` URL is the final URL in the cover letter.
+- [ ] Every optional/job-specific site URL maps to a named current-job requirement or risk; if no direct mapping exists, no job-specific site URL is included.
+- [ ] No site from a previous application is reused merely because it is already published or visually polished.
 - [ ] Private work reveals no confidential UI, data, code, or client identity without permission.
 - [ ] Repository ownership, license, tracked secrets, private endpoints, and public-redistribution rights were checked before publishing or attaching code.
 - [ ] Mock/local/demo behavior is labeled as such.
@@ -68,7 +72,9 @@ Do not inflate the score. List the top two weaknesses and fix them when possible
 
 ## PDF and PNG Audit
 
-- [ ] The default pack is purposeful: one concise case-study PDF, two meaningfully different PNGs, and the current Upwork-safe CV; fewer or more files have a job-specific reason.
+- [ ] The current verified Upwork-safe CV is attached exactly once whenever the form supports attachments; no regular contact-bearing CV is substituted.
+- [ ] Every non-CV attachment is selected for the current job; the full LeAPS/TalentScope/Accessimate/case-study evidence pack is used only when relevant, and any smaller or different bundle has a clear job-specific reason.
+- [ ] Every non-CV attachment has a written `filename -> named current-job requirement` mapping; any unrelated, generic, or previous-application filler was removed.
 - [ ] PDF pages render cleanly with no cut-off text or broken links.
 - [ ] Text is readable at normal zoom and the document is concise.
 - [ ] Screenshots are sharp, current, and show distinct relevant states.
@@ -93,6 +99,7 @@ Do not inflate the score. List the top two weaknesses and fix them when possible
 - [ ] A small fixed price is not misrepresented as a complete production platform.
 - [ ] Milestones have concrete acceptance outcomes.
 - [ ] Dates agree across proposal, form, PDF, and demo plan.
+- [ ] Deadline, milestone due date, delivery promise, and duration were calculated for this job and were not copied from an earlier application.
 - [ ] QA, feedback, deployment, and buffer are included.
 - [ ] Weekly availability is accurate and not tied to invented fixed hours.
 - [ ] Development fee and recurring infrastructure cost are separated when applicable.
@@ -109,6 +116,7 @@ Do not inflate the score. List the top two weaknesses and fix them when possible
 - [ ] Rank is described as a non-guaranteed live snapshot.
 - [ ] All required fields show complete.
 - [ ] Correct portfolio items and files are attached once.
+- [ ] The Upwork-safe CV filename appears exactly once in the live attachment list.
 - [ ] Proposal has been reread in its rendered form.
 - [ ] Current-turn authorization exists before the final Submit/Send click.
 - [ ] After clicking, confirmation or submitted-proposal status was verified before any retry.
@@ -119,5 +127,6 @@ Do not inflate the score. List the top two weaknesses and fix them when possible
 - [ ] Current form was compared against the saved copy.
 - [ ] Published portfolio items and deployments were checked before recreating anything.
 - [ ] Attachments were restored without duplicates.
+- [ ] The mandatory Upwork-safe CV was restored and verified exactly once.
 - [ ] Connects and client activity were refreshed.
 - [ ] Submission status was inspected before resuming.

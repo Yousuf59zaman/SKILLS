@@ -2,6 +2,10 @@
 
 The queue root is `C:\Users\User\.openclaw\workspace\.queue\fb-second-brain`.
 
+## Scripted cron runner
+
+Routine cron execution uses `powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\User\.openclaw\workspace\skills\fb-second-brain\scripts\run-scripted-messenger-queue.ps1`. Use `-Preflight` for a no-claim/no-send credential and queue-contract check. The wrapper attaches only to the OpenClaw-owned browser context and retains the lock, sequential claim, DPAPI, and verified-completion guarantees below.
+
 - `pending/`: ready or backoff-delayed jobs
 - `processing/`: the one job currently claimed by the lock owner
 - `failed/`: jobs that exhausted retries; keep these and their payloads for inspection
@@ -22,7 +26,7 @@ node C:\Users\User\.openclaw\workspace\skills\fb-second-brain\scripts\queue-work
 
 ## Posting rules
 
-- Use only the visible OpenClaw browser profile `openclaw`; do not use `chrome`, an extension relay, headless mode, standalone Playwright/Puppeteer, cookies, or extracted credentials.
+- Use only the OpenClaw-owned browser profile `openclaw`; do not use `chrome`, an extension relay, a separately launched browser, cookies, or extracted credentials. The audited scripted runner may attach bundled Playwright over CDP to that existing context only.
 - Before claiming a job, open Messenger and run `powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\User\.openclaw\workspace\skills\fb-second-brain\scripts\messenger-login-helper.ps1 -Action Login -BrowserProfile openclaw`. The helper may use only the local Windows-user-bound encrypted store and must never print or return the raw login.
 - If the helper returns `two_factor_required`, leave every job pending, release the lock, stop the run, and return exactly `Messenger login needs 2-step verification. Queue retained; please complete it in the openclaw browser.`
 - Use the claimed job's `post_manifest.browser_handoff` as the exact target, attachments, message, and verification cue.

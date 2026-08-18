@@ -49,7 +49,7 @@ Only `SKILL.md` is required. Optional folders can be present when the child skil
 
 - `taskbar-zorder`: Diagnose and control Windows taskbar Z-order so normal app windows can cover or stay above the taskbar/footer. Use for `Shell_TrayWnd`, `Shell_SecondaryTrayWnd`, taskbar topmost state, app-over-taskbar behavior, the persistent `KeepTaskbarLowered` watcher, duplicate watcher prevention, and current-user logon autostart.
 - `setup-relay-ai-claude-go`: Install, repair, and verify Relay AI 0.4.0 with signed Claude Desktop, secure OpenCode Go credential rotation, live Go favorites, and Relay/Codex configuration on Windows.
-- `setup-openclaw-opencode-go`: Keep OpenClaw on direct OpenCode Go, set the three user agents to GLM-5.2, and keep `main-cron` separately on MiniMax M3.
+- `setup-openclaw-opencode-go`: Keep OpenClaw on direct OpenCode Go, preserve the configured four-agent ordinary-chat route, and keep `main-cron` on Luna/high with MiniMax M3 as its single model fallback.
 - `route-openclaw-models-by-task`: Route coding, visual/tool, planning/review/security, documentation, video, and cron work to the requested task-specific models.
 - `fallback-openclaw-models-by-capability`: Preserve image, video, tool, coding, and reasoning capabilities while falling back within the approved model set.
 - `bypass-opencode-go-cooldown`: Prevent one transient OpenCode Go failure from suspending the entire provider while still surfacing upstream limits.

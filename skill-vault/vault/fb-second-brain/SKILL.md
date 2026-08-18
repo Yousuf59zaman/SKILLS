@@ -42,7 +42,11 @@ Use `scripts/prepare-drop.mjs` as the normal deterministic entry point. A live e
 
 ## Queue drain (main-cron only)
 
-Read `references/queue-contract.md` before operating the worker. Run it once daily at `18:30 Asia/Dhaka`; one run drains every currently eligible queue item sequentially. The scheduled worker must use agent `main-cron`, model `opencode-go/minimax-m3`, thinking `high`, and the visible managed browser profile `openclaw`.
+Read `references/queue-contract.md` before operating the worker. Run it once daily at `18:30 Asia/Dhaka`; one run drains every currently eligible queue item sequentially. The scheduled worker must use agent `main-cron`, model `opencode-go/gpt-5.6-luna`, thinking `high`, the single fallback `opencode-go/minimax-m3`, and the OpenClaw-owned browser profile `openclaw`.
+
+### Authoritative scripted cron entrypoint
+
+Routine cron runs execute `powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\User\.openclaw\workspace\skills\fb-second-brain\scripts\run-scripted-messenger-queue.ps1`. This audited wrapper uses the DPAPI helpers, attaches only to the OpenClaw-owned browser context, preserves the exclusive queue/verification contract, and never exposes credentials. The numbered procedure below is manual recovery guidance.
 
 1. Acquire the exclusive queue lock with `queue-worker.mjs begin-run`. If it reports `busy`, return `NO_REPLY` and stop. Check queue status; if empty, release the lock and return `NO_REPLY`.
 2. Before claiming any job, open `https://www.facebook.com/messages/` in the visible `openclaw` profile and run `powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\User\.openclaw\workspace\skills\fb-second-brain\scripts\messenger-login-helper.ps1 -Action Login -BrowserProfile openclaw`. It no-ops when already logged in and otherwise submits the Windows-user-bound encrypted local login without echoing it.
@@ -71,7 +75,7 @@ Read `references/queue-contract.md` before operating the worker. Run it once dai
 - Send banter/roast media to `meme boi` only after removing real names, private facts, or identifying details. Keep `office-moments.md` private.
 - Preserve exact capitalization of the eleven group names.
 - Never write to `openclaw.json`, auth/profile files, or `memory/fb-messenger-groups.md` as part of this workflow.
-- Never use headless browser automation, standalone Puppeteer/Playwright, stored cookies, or extracted browser credentials.
+- Never use ad-hoc headless automation, launch a standalone Puppeteer/Playwright browser, read stored cookies, or extract credentials. The audited scripted runner may attach bundled Playwright over CDP to the existing OpenClaw-owned `openclaw` context only.
 - Never put the Messenger login email/password in a prompt, memory file, queue job, cron configuration, source file, test, Git repository, or log. Only `messenger-login-helper.ps1` may access the DPAPI-encrypted local login store, and only long enough to submit it to the visible managed browser.
 - Never ask Yousuf for the stored login during a cron run. A 2-step challenge is the only authentication condition that must produce the exact user notification above; leave every queue item pending and untouched.
 - Never put the Messenger chat-history PIN in a prompt, memory file, queue job, cron configuration, source file, test, Git repository, or log. Only `messenger-pin-helper.ps1` may access the DPAPI-encrypted local store, and only long enough to submit it to the visible managed browser.
@@ -115,7 +119,7 @@ Use `post_text` only for meaningful accompanying text Yousuf intends to send wit
 
 ## Testing
 
-Run `node scripts/self-test.mjs` for the isolated regression matrix and `node scripts/agent-routing-contract-test.mjs` for the agent-only routing contract. These tests create temporary workspaces, never touch the production memory/queue, and never send a Messenger message. After code or cron changes, also run the skill validator, confirm the production queue is unlocked, and confirm the single cron job still uses `main-cron` + `opencode-go/minimax-m3` + `high`. Test login submission and 2-step detection only with an isolated network-free browser form; never log out the live Facebook session or expose the credential. A live Messenger PIN prompt may be cleared only with `messenger-pin-helper.ps1`.
+Run `node scripts/self-test.mjs` for the isolated regression matrix and `node scripts/agent-routing-contract-test.mjs` for the agent-only routing contract. These tests create temporary workspaces, never touch the production memory/queue, and never send a Messenger message. After code or cron changes, also run the skill validator, confirm the production queue is unlocked, and confirm the single cron job still uses `main-cron` + Luna + `high` + the single MiniMax M3 fallback. Test login submission and 2-step detection only with an isolated network-free browser form; never log out the live Facebook session or expose the credential. A live Messenger PIN prompt may be cleared only with `messenger-pin-helper.ps1`.
 
 ## Categories
 

@@ -1,4 +1,4 @@
 interface:
   display_name: "Route OpenClaw Models by Task"
-  short_description: "Route OpenClaw work to task-specific models"
-  default_prompt: "Use $route-openclaw-models-by-task to audit and repair dynamic task-based model routing."
+  short_description: "Route browser actions to Luna safely"
+  default_prompt: "Use $route-openclaw-models-by-task to route explicit browser actions to Luna while keeping ordinary tasks on OmniRoute."

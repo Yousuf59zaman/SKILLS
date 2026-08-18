@@ -15,7 +15,7 @@ Never replace a failed model with one that cannot consume the current request's 
 - Browser/MCP/CLI: Qwen 3.7 Plus → MiniMax M3 first. Continue to text-only models only when the current turn has no image/video dependency.
 - Documentation: Qwen 3.7 Plus → Qwen 3.7 Max → GLM-5.2 → Kimi K2.7 Code → MiniMax M3.
 - Raw video: MiniMax M3 only; there is no second video-capable model in the approved set.
-- `main-cron`: MiniMax M3 only, no model fallback.
+- `main-cron`: preserve Luna as its explicit primary with `thinking=high` and use only `opencode-go/minimax-m3` as its explicit model fallback.
 
 ## Canonical Implementation
 
@@ -46,7 +46,7 @@ Test at least: attached image, screenshot path, stale old image followed by text
 
 ## Guardrails
 
-- Use only the five approved model families listed in this skill.
+- Use only the five approved model families listed in this skill when generating fallbacks; an externally owned explicit primary such as Luna is not a fallback.
 - Do not claim a text-only model supports image or video input.
 - Do not mask the final provider error when every compatible candidate fails.
-- Do not add model fallbacks to `main-cron`.
+- Do not add any `main-cron` model fallback other than the explicitly approved `opencode-go/minimax-m3`.

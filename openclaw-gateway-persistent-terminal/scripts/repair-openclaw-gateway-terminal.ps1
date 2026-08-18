@@ -177,10 +177,13 @@ Set-Content -LiteralPath $liveLogCmd -Value $liveLogCmdContent -Encoding ASCII
 $gatewayContent = @'
 @echo off
 rem OpenClaw Gateway supervised launcher.
-rem Manual start: if another supervisor is already running, keep this terminal open as a live monitor.
-rem Service/watchdog start: pass --service to exit cleanly without leaving hidden duplicate windows.
+rem Default is non-interactive service mode so scheduled/startup callers cannot leave monitor windows.
+rem Visible/manual launchers must pass --manual.
 setlocal
-set "OPENCLAW_GATEWAY_LAUNCH_MODE=manual"
+set "OPENCLAW_GATEWAY_LAUNCH_MODE=service"
+if /I "%~1"=="--manual" set "OPENCLAW_GATEWAY_LAUNCH_MODE=manual"
+if /I "%~1"=="/manual" set "OPENCLAW_GATEWAY_LAUNCH_MODE=manual"
+if /I "%~1"=="manual" set "OPENCLAW_GATEWAY_LAUNCH_MODE=manual"
 if /I "%~1"=="--service" set "OPENCLAW_GATEWAY_LAUNCH_MODE=service"
 if /I "%~1"=="/service" set "OPENCLAW_GATEWAY_LAUNCH_MODE=service"
 if /I "%~1"=="service" set "OPENCLAW_GATEWAY_LAUNCH_MODE=service"
@@ -216,7 +219,7 @@ $manualContent = @'
 rem Visible/manual OpenClaw Gateway launcher. Starts a real live-log terminal plus a status monitor if gateway is already running.
 if not "%OPENCLAW_GATEWAY_NO_LIVE_LOG%"=="1" start "OpenClaw Gateway Live Log" "%USERPROFILE%\.openclaw\gateway-live-log.cmd"
 set "OPENCLAW_GATEWAY_NO_MONITOR="
-call "%USERPROFILE%\.openclaw\gateway.cmd"
+call "%USERPROFILE%\.openclaw\gateway.cmd" --manual
 '@
 Set-Content -LiteralPath $manualCmd -Value $manualContent -Encoding ASCII
 
@@ -286,10 +289,14 @@ if (Test-Path -LiteralPath $autostartPs1) {
 
 if (-not $SkipScheduledTaskUpdate) {
   try {
-    schtasks.exe /Change /TN "OpenClaw Gateway" /TR "$serviceCmd" | Out-Null
+    $taskUpdateOutput = & schtasks.exe /Change /TN "OpenClaw Gateway" /TR "$serviceCmd" 2>&1
+    $taskUpdateExitCode = $LASTEXITCODE
+    if ($taskUpdateExitCode -ne 0) {
+      throw "schtasks.exe exited with code $taskUpdateExitCode"
+    }
     Write-Status 'Scheduled task OpenClaw Gateway updated to gateway-service.cmd.'
   } catch {
-    Write-Status 'Scheduled task update skipped/denied; files are still patched. Rerun elevated if scheduled action must be changed.'
+    Write-Status ("Scheduled task update skipped/denied; files are still patched. Rerun elevated if scheduled action must be changed. {0}" -f $_.Exception.Message)
   }
 }
 

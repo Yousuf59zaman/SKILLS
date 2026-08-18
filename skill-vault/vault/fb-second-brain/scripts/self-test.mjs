@@ -2405,8 +2405,9 @@ function registerIntegrationConfigTests() {
     assert.equal(job.schedule.tz, 'Asia/Dhaka');
     assert.equal(job.schedule.staggerMs, 0);
     assert.equal(job.sessionTarget, 'isolated');
-    assert.equal(job.payload.model, 'opencode-go/minimax-m3');
+    assert.equal(job.payload.model, 'opencode-go/gpt-5.6-luna');
     assert.equal(job.payload.thinking, 'high');
+    assert.deepEqual(job.payload.fallbacks, ['opencode-go/minimax-m3']);
     assert.equal(job.payload.lightContext, true);
     assert.match(job.payload.message, /complete --verified true/);
     assert.match(job.payload.message, /messenger-login-helper\.ps1/);
