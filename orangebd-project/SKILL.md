@@ -175,6 +175,35 @@ Expected admin list response shape:
 
 If the API does not match, report the mismatch before coding around it.
 
+## Data-State Contract for API-Backed UI
+
+Standardize the state semantics, not the exact UI. Adapt copy, iconography, spacing, controls, and retry treatment to the target project's design system and user requirements.
+
+Keep these states separate for every data-backed panel, table, chart, filter, dropdown, and export:
+
+- `loading`: the request is pending and the data source is not yet known;
+- `error`/`unavailable`: the request, permission, or response contract failed;
+- `valid empty`: the successful, normalized response has no eligible records or options;
+- `filter empty`: valid source data exists, but the user's selected filters/series produce no visible result;
+- `success`: at least one real, valid record or visible series exists.
+
+Before rendering or mapping data:
+
+1. Confirm whether an empty array is a valid API result. Treat a missing or malformed expected shape as an API mismatch, not as an empty success.
+2. Normalize and deduplicate API options and records according to the inspected contract.
+3. Clear or visibly mark stale records/options during a refetch or failed request; do not present stale data as current.
+4. Preserve a selected value only while it remains in the current valid option list; remove invalid selections after dependent filter/data changes.
+
+Render and control behavior:
+
+- Use a layout-preserving, design-aligned loading state such as the project's existing skeleton/loader; disable controls whose action would be invalid while loading.
+- Show a clear unavailable/error state and a retry action when retry is meaningful. Never disguise a failed request as a successful empty result.
+- Use different empty messaging for no source options/data versus a user selection that removes all visible results. Do not render fabricated chart points, rows, totals, or API options.
+- For API dropdowns, show loading first, then real normalized options on success, a disabled “no options” state for a valid empty response, and a disabled unavailable state with retry for a request failure. Do not add synthetic “All …” choices after a failed request; create aggregate choices only when real options loaded and the product requires them.
+- Keep export/download controls visible but disabled for loading, error, no actual records, or no visible chart series unless the approved product design explicitly requires hiding them. Give disabled controls an accessible reason (for example tooltip/title and screen-reader label) and guard the export handler internally so keyboard or programmatic invocation cannot create a header-only/empty file.
+
+Verify the five states above, stale-selection cleanup, request/filter changes, actual export rows, responsive layout, overlay viewport containment, and relevant browser-console errors. Use a live valid response or an approved fixture for populated-data checks; never invent production data or request keys to make a state look complete.
+
 ## UI and Component Rules
 
 Follow the app's current design system first.

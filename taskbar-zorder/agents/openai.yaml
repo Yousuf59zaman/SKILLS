@@ -1,0 +1,4 @@
+interface:
+  display_name: "Taskbar Z-Order"
+  short_description: "Control taskbar overlap and hidden autostart"
+  default_prompt: "Use $taskbar-zorder to keep Windows apps above the taskbar and install a hidden logon watcher when persistence is requested."

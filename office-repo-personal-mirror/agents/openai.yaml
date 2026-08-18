@@ -1,0 +1,4 @@
+interface:
+  display_name: "Office Repo Personal Mirror"
+  short_description: "Mirror an office GitHub repo to a private personal repo for ChatGPT"
+  default_prompt: "Use $office-repo-personal-mirror to connect this office repository to my personal GitHub as a private read-only mirror, then use git chatgpt-sync after commits."

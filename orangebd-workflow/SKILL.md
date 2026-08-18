@@ -98,6 +98,11 @@ Use this skill for OrangeBD project tasks. Apply only the rules that fit the cur
 
 ## Functional and technical checks
 
+- Apply the `orangebd-project` Data-State Contract to every API-backed panel, list, chart, filter, dropdown, and export. Keep loading, unavailable/error, valid-empty, filter-empty, and success as distinct states; adapt their visual treatment to the target project's design rather than copying another project's UI.
+- Validate response shape before treating it as empty, normalize/deduplicate options, clear or visibly mark stale values during refetch/failure, and retain a selected option only while it still exists in the current valid list.
+- For API-driven dropdowns, render the existing project loader/skeleton while pending; show only real options after success; use a disabled no-options state for a valid empty response; use a disabled unavailable state with retry for a failure. Do not show fake “All …” options after an API failure.
+- For export/download actions, keep the control visible but disabled (unless the approved design requires otherwise) whenever data is loading, unavailable, empty, or has no visible chart series. Expose a meaningful accessible reason and add a handler-level guard so an empty/header-only file cannot be generated.
+- Test loading, API error, valid empty response, user-filtered empty result, and populated success separately. Test selection cleanup after option/data changes, actual export rows, responsive overflow/popover containment, and relevant browser-console errors. Use only a live valid response or approved fixture for populated-data verification.
 - Watch for SSR/Nuxt/Vue hydration problems and use the project's established hydration-safe patterns.
 - Use skeleton loaders for async content when the task affects loading UX and the project pattern supports it.
 - Consider the user auth journey and route guards when changing pages behind login or role-based flows.
