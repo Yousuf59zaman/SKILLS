@@ -9,6 +9,7 @@ Keep OpenCode conversations on one persistent Chrome profile while separating br
 
 ## Inspect the current setup
 
+- For the intended Google login and its Chrome profile, read [shared login and profile setup](references/shared-login-profile.md). Load the private account/profile binding from the OpenCode config directory before choosing or repairing a profile; every OpenCode conversation must reuse that same login.
 - Read only browser-related entries and the `instructions` list from the current OpenCode config. Inspect its browser launcher/settings, plugin and loopback listener. Do not dump the whole configuration, Chrome profile, private page titles/URLs, cookies, or account data.
 - This bundle supports Windows, Node 24+, and an existing OpenCode shared profile on port 9222. Its installer expects existing `playwright`, `chrome-devtools`, and `chrome_devtools` MCP entries and either the previous launcher or shared-profile settings. Inspect and adapt a different layout deliberately; do not create/copy an account profile automatically.
 - Preserve the current task's scope: an audit can stop after reporting findings; install/repair authorization covers the matching browser configuration changes. Syncing this skill to other agents shares knowledge, not their live browser configuration.
