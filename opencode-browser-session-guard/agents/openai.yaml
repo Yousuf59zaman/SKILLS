@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenCode Browser Session Guard"
+  short_description: "Repair shared Chrome isolation across OpenCode sessions"
+  default_prompt: "Use $opencode-browser-session-guard to install or audit shared Chrome tab isolation for parallel OpenCode conversations."

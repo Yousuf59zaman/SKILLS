@@ -1,0 +1,44 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { mkdtemp, mkdir, writeFile, readFile, readdir } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { root } from './support.mjs';
+const exec = promisify(execFile);
+test('installer check preserves JSONC, profiles and unrelated settings', async () => {
+  const config=await mkdtemp(join(tmpdir(),'opencode-guard-install-check-'));
+  const profile=join(config,'existing-browser-profile'); await mkdir(profile);
+  const text=`// Keep this fixture comment\n${JSON.stringify({provider:{fixture:{name:'unchanged'}},mcp:Object.fromEntries(['playwright','chrome-devtools','chrome_devtools'].map(n=>[n,{type:'local',command:['fixture'],enabled:true}]))},null,2)}\n`;
+  await writeFile(join(config,'opencode.jsonc'),text);
+  await writeFile(join(config,'browser-shared-chrome.settings.json'),JSON.stringify({profilePath:profile}));
+  const files=await readdir(config);
+  const r=await exec(process.execPath,[join(root,'install.mjs'),'--check','--config-dir',config],{windowsHide:true});
+  assert(r.stdout.includes('PASS:')); assert.equal(await readFile(join(config,'opencode.jsonc'),'utf8'),text);
+  assert.deepEqual(await readdir(config),files); assert.deepEqual(await readdir(profile),[]);
+});
+test('installer check rejects incomplete browser config without writes', async () => {
+  const config=await mkdtemp(join(tmpdir(),'opencode-guard-install-incomplete-'));
+  await writeFile(join(config,'opencode.jsonc'),'{}');
+  await assert.rejects(exec(process.execPath,[join(root,'install.mjs'),'--check','--config-dir',config],{windowsHide:true}),/entry is missing/);
+  assert.deepEqual(await readdir(config),['opencode.jsonc']);
+});
+test('installer applies the pinned guard in an isolated config while preserving unrelated JSONC', async () => {
+  const config=await mkdtemp(join(tmpdir(),'opencode-guard-install-apply-'));
+  const profile=join(config,'existing-browser-profile'); await mkdir(profile);
+  const original={provider:{fixture:{name:'keep-this-provider'}},instructions:['keep-existing-rule.md'],mcp:{unrelated:{type:'local',command:['keep-existing-tool']},...Object.fromEntries(['playwright','chrome-devtools','chrome_devtools'].map(n=>[n,{type:'local',command:['old-fixture'],enabled:true}]))}};
+  await writeFile(join(config,'opencode.jsonc'),'// preserve-comment\n'+JSON.stringify(original,null,2));
+  await writeFile(join(config,'browser-shared-chrome.settings.json'),JSON.stringify({profilePath:profile}));
+  const run=await exec(process.execPath,[join(root,'install.mjs'),'--config-dir',config],{windowsHide:true,timeout:60000});
+  assert(run.stdout.includes('Installed'));
+  const text=await readFile(join(config,'opencode.jsonc'),'utf8');
+  assert(text.startsWith('// preserve-comment'));
+  const parsed=JSON.parse(text.slice(text.indexOf('\n')+1));
+  assert.deepEqual(parsed.provider,original.provider); assert.deepEqual(parsed.mcp.unrelated,original.mcp.unrelated);
+  assert.equal(parsed.mcp.chrome_devtools.enabled,false); assert(parsed.instructions.includes('keep-existing-rule.md'));
+  assert(parsed.mcp.playwright.command[1].startsWith(config));
+  assert((await readFile(join(config,'plugins','browser-session-guard.js'),'utf8')).includes('tool.execute.before'));
+  assert.deepEqual(await readdir(profile),[]);
+  assert.equal((await readdir(join(config,'backups'))).length,1);
+});
