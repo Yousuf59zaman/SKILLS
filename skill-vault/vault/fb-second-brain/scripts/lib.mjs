@@ -438,9 +438,9 @@ function isTransportMediaPlaceholder(value) {
 export function normalizeAttachments(input = {}) {
   const values = input.attachment_paths ?? input.attachments ?? input.attachment ?? [];
   const list = Array.isArray(values) ? values : [values];
-  return [...new Set(list.map((item) => normalizeText(
+  return list.map((item) => normalizeText(
     typeof item === 'string' ? item : item?.path ?? item?.file ?? item?.file_path,
-  )).filter(Boolean))];
+  )).filter(Boolean);
 }
 
 export function isProtectedMemoryPath(memoryFile) {

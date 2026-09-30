@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises';
+import { bundleMessageText, deliveryUrls } from './bundle.mjs';
 import {
   EXACT_FB_GROUPS,
   activeRouteForMemoryFile,
-  canonicalMediaUrls,
   inferContentType,
   isMain,
   isMediaPresent,
@@ -23,7 +23,11 @@ export async function prepareFbPost(input = {}) {
   const fbGroup = normalizeText(routedInput.fb_group);
   const contentType = inferContentType(routedInput);
   const attachments = normalizeAttachments(routedInput);
-  const urls = canonicalMediaUrls(routedInput);
+  const urls = deliveryUrls(routedInput);
+
+  if (input.inbound_bundle_complete === false || (input.expected_attachment_count !== undefined && Number(input.expected_attachment_count) !== attachments.length)) {
+    return blocked('incomplete_bundle', 'The inbound bundle is incomplete; no partial delivery is permitted.', fbGroup);
+  }
 
   if (routedInput.duplicate) return blocked('duplicate', 'Duplicate content must not be reposted.', fbGroup);
   if (!isMediaPresent(routedInput)) return blocked('text_only', 'Text-only notes are memory-only.', fbGroup);
@@ -58,7 +62,7 @@ export async function prepareFbPost(input = {}) {
     }
   }
 
-  const messageText = chooseMessageText(routedInput, contentType, urls);
+  const messageText = bundleMessageText(routedInput);
   return {
     ready: true,
     target_group: fbGroup,
@@ -70,6 +74,10 @@ export async function prepareFbPost(input = {}) {
       target_group: fbGroup,
       attachment_paths: inspectedAttachments.map((item) => item.path),
       message_text: messageText,
+      expected_attachment_count: attachments.length,
+      canonical_urls: urls,
+      attachment_sizes: inspectedAttachments.map((item) => item.size),
+      bundle: input.bundle ?? null,
       verification: verificationCue(contentType, messageText, inspectedAttachments, urls),
       steps: [
         'Before claiming or posting, run the fb-second-brain messenger-login-helper.ps1 with Action Login and profile openclaw; it no-ops when already logged in and otherwise uses only the encrypted local login store.',
@@ -80,7 +88,7 @@ export async function prepareFbPost(input = {}) {
         'Attach each local file, if any, and wait until every upload is visibly ready.',
         'Type only message_text when it is non-empty.',
         'Send once.',
-        'Take a fresh snapshot and verify the sent message or attachment appears in the conversation.',
+        'Verify ALL attachments and the COMPLETE text with every link in the same outgoing bundle; one visible item is never sufficient.',
       ],
     },
   };
@@ -102,13 +110,6 @@ function requiresPrivacyReview(input) {
     memoryFile.endsWith('/office-funny-prompts.md') ||
     memoryFile.endsWith('/friend-group-funny-prompts.md')
   );
-}
-
-function chooseMessageText(input, contentType, urls) {
-  const explicit = normalizeText(input.post_text ?? input.accompanying_text);
-  if (explicit) return explicit;
-  if (contentType === 'link') return urls[0] ?? normalizeText(input.source);
-  return '';
 }
 
 function verificationCue(contentType, messageText, attachments, urls) {

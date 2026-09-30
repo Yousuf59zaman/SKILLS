@@ -28,14 +28,32 @@ import { prepareDrop } from './prepare-drop.mjs';
 import {
   beginRun,
   claimNext,
-  completeJob,
+  completeJob as completeJobRaw,
+  markSubmitStarted,
   endRun,
   enqueueMediaJob,
   failJob,
   queueStatus,
+  retryFailedJob,
 } from './queue-worker.mjs';
+import { deliveryEvidenceSatisfied } from './drain-messenger-queue.mjs';
 import { saveToMemory } from './save-to-memory.mjs';
 import { validateAgentRoute } from './validate-agent-route.mjs';
+
+function fixtureReceipt(job) {
+  return { version: 1, bundle_fingerprint: job.bundle.fingerprint, target_group: job.fb_group, attachment_count: job.bundle.attachment_count, message_text_sha256: job.bundle.message_text_sha256, link_count: job.bundle.canonical_urls.length, all_parts_verified: true, composer_empty: true };
+}
+// Positive queue lifecycle fixtures simulate the observed full-bundle receipt.
+// Missing/partial receipt rejection is exercised separately by bundle SQA.
+async function completeJob(input) {
+  if (!/^[a-zA-Z0-9_-]+$/.test(String(input.job_id || ''))) return completeJobRaw(input);
+  if (input.verified === true && input.verification_note && !input.delivery_receipt) {
+    const job = JSON.parse(await fs.readFile(path.join(input.workspace, '.queue/fb-second-brain/processing', input.job_id + '.json'), 'utf8'));
+    await markSubmitStarted(input);
+    input = { ...input, delivery_receipt: fixtureReceipt(job) };
+  }
+  return completeJobRaw(input);
+}
 
 function registerAgentRouteTests() {
   for (const [memoryFile, route] of Object.entries(ACTIVE_MEMORY_FILE_ROUTES)) {
@@ -735,7 +753,7 @@ function registerPostGuardTests() {
       title: 'MEDIA:https://example.com/image.jpg save https://youtu.be/b2AOa8BHTPw?si=tracking',
     }));
     assert.equal(result.ready, true);
-    assert.equal(result.browser_handoff.message_text, 'https://www.youtube.com/watch?v=b2AOa8BHTPw');
+    assert.equal(result.browser_handoff.message_text, 'funny link fixture\n\nhttps://www.youtube.com/watch?v=b2AOa8BHTPw');
     assert.doesNotMatch(result.browser_handoff.message_text, /example\.com\/image\.jpg/iu);
   });
   test('post guard corrects a supplied group to the active memory-file group', async () => {
@@ -844,7 +862,7 @@ function registerPostGuardTests() {
       browser_profile: 'openclaw',
     }));
     assert.equal(result.ready, true);
-    assert.equal(result.browser_handoff.message_text, 'https://example.com/post');
+    assert.equal(result.browser_handoff.message_text, 'funny link fixture\n\nhttps://example.com/post');
     assert.equal(result.browser_handoff.profile, 'openclaw');
     assert.equal(result.browser_handoff.visible, true);
   });
@@ -925,7 +943,7 @@ function registerDedupeTests() {
     assert.equal(result.duplicate, false);
     assert.equal(result.memory_duplicate, false);
   });
-  test('dedupe recognizes a richly described re-encoded media title despite a different byte hash', async () => {
+  test('dedupe does not discard unseen image bytes based only on a similar descriptive title', async () => {
     const workspace = await freshWorkspace('dedupe-reencoded-title');
     await fs.writeFile(
       path.join(workspace, 'memory', 'meme-boi.md'),
@@ -937,9 +955,9 @@ function registerDedupeTests() {
       title: 'Ronaldo crying while Yamal and Messi sleep with World Cup trophy - meme template',
       attachment_paths: [fixtures.imageDifferent],
     });
-    assert.equal(result.duplicate, true);
-    assert.equal(result.memory_duplicate, true);
-    assert.ok(result.reasons.includes('similar_media_title'));
+    assert.equal(result.duplicate, false);
+    assert.equal(result.memory_duplicate, false);
+    assert.equal(result.active_queue_match, null);
   });
   test('dedupe finds URL in metadata log', async () => {
     const workspace = await freshWorkspace('dedupe-log-url');
@@ -948,7 +966,7 @@ function registerDedupeTests() {
     assert.equal(result.duplicate, true);
     assert.equal(result.memory_duplicate, true);
     assert.equal(result.delivery_duplicate, false);
-    assert.ok(result.reasons.includes('logged_canonical_url'));
+    assert.ok(result.reasons.includes('canonical_url'));
   });
   test('only a verified sent log is a delivery duplicate', async () => {
     const workspace = await freshWorkspace('dedupe-sent-log');
@@ -1220,18 +1238,45 @@ function registerQueueTests() {
     assert.match(path.basename(queued[1]), /^02-/);
     assert.deepEqual(await fs.readFile(queued[1]), await fs.readFile(fixtures.imageDifferent));
   });
+  test('claim rebuilds a stale cached manifest from the durable queue payload', async () => {
+    const workspace = await freshWorkspace('queue-stale-manifest-claim');
+    const queued = await enqueueMediaJob({ workspace, ...mediaInput() });
+    const jobPath = path.join(workspace, queued.queue_file);
+    const job = JSON.parse(await fs.readFile(jobPath, 'utf8'));
+    job.post_manifest = {
+      ...job.post_manifest,
+      ready: true,
+      browser_handoff: {
+        ...job.post_manifest.browser_handoff,
+        attachment_paths: [path.join(workspace, 'missing-stale-cache.jpg')],
+      },
+    };
+    await fs.writeFile(jobPath, `${JSON.stringify(job, null, 2)}\n`, 'utf8');
+
+    const run = await beginRun({ workspace });
+    const claim = await claimNext({ workspace, lock_token: run.lock_token, browser_profile: 'openclaw' });
+    const repairedPath = claim.post_manifest.browser_handoff.attachment_paths[0];
+    assert.notEqual(repairedPath, job.post_manifest.browser_handoff.attachment_paths[0]);
+    assert.equal(await exists(repairedPath), true);
+    assert.equal(claim.post_manifest.ready, true);
+    await failJob({ workspace, lock_token: run.lock_token, job_id: claim.job.id, retryable: false, error: 'fixture cleanup' });
+    await endRun({ workspace, lock_token: run.lock_token });
+    const events = await readJsonLines(path.join(workspace, '.queue', 'fb-second-brain', 'events.jsonl'));
+    assert.ok(events.some((event) => event.event === 'manifest_refreshed' && event.job_id === queued.job_id));
+  });
   test('queue deduplicates a pending fingerprint', async () => {
     const workspace = await freshWorkspace('queue-dedupe');
     const fingerprint = 'same-fingerprint';
-    const first = await enqueueMediaJob({ workspace, ...linkInput({ content_fingerprint: fingerprint }) });
-    const second = await enqueueMediaJob({ workspace, ...linkInput({ content_fingerprint: fingerprint }) });
+    const input = { workspace, ...linkInput({ content_fingerprint: fingerprint }) };
+    const first = await enqueueMediaJob(input);
+    const second = await enqueueMediaJob(input);
     assert.equal(first.queued, true);
     assert.equal(second.skipped, 'already_queued');
     assert.equal(first.queue_number, 1);
     assert.equal(second.queue_number, 1);
     assert.equal((await queueStatus({ workspace })).pending, 1);
   });
-  test('queue reuses a semantically equivalent rich-title media job after re-encoding', async () => {
+  test('queue keeps different bytes despite similar title instead of losing an attachment', async () => {
     const workspace = await freshWorkspace('queue-reencoded-title');
     const route = {
       category: 'meme-template',
@@ -1259,10 +1304,10 @@ function registerQueueTests() {
       }),
     });
     assert.equal(first.queued, true);
-    assert.equal(second.skipped, 'already_queued');
-    assert.equal(second.matched_by, 'similar_media_title');
-    assert.equal(second.queue_number, first.queue_number);
-    assert.equal((await queueStatus({ workspace })).pending, 1);
+    assert.equal(second.queued, true);
+    assert.equal(second.matched_by, undefined);
+    assert.notEqual(second.queue_number, first.queue_number);
+    assert.equal((await queueStatus({ workspace })).pending, 2);
   });
   test('queue numbers remain monotonic after a completed job is removed', async () => {
     const workspace = await freshWorkspace('queue-number-monotonic');
@@ -1417,15 +1462,65 @@ function registerQueueTests() {
     assert.equal(await exists(payload), true);
     assert.equal(log[0].post_status, 'failed');
   });
+  test('operator retry repairs a failed stale manifest without losing its durable payload', async () => {
+    const workspace = await freshWorkspace('queue-repair-failed-manifest');
+    const queued = await enqueueMediaJob({ workspace, ...mediaInput({ max_attempts: 1 }) });
+    const firstRun = await beginRun({ workspace });
+    const firstClaim = await claimNext({ workspace, lock_token: firstRun.lock_token });
+    await failJob({
+      workspace,
+      lock_token: firstRun.lock_token,
+      job_id: firstClaim.job.id,
+      retryable: false,
+      error: 'legacy stale manifest fixture',
+    });
+    await endRun({ workspace, lock_token: firstRun.lock_token });
+
+    const failedPath = path.join(workspace, '.queue', 'fb-second-brain', 'failed', `${queued.job_id}.json`);
+    const failedJob = JSON.parse(await fs.readFile(failedPath, 'utf8'));
+    failedJob.post_manifest.browser_handoff.attachment_paths = [path.join(workspace, 'missing-legacy-cache.jpg')];
+    await fs.writeFile(failedPath, `${JSON.stringify(failedJob, null, 2)}\n`, 'utf8');
+
+    const repaired = await retryFailedJob({ workspace, queue_number: queued.queue_number, browser_profile: 'openclaw' });
+    assert.equal(repaired.requeued, true);
+    assert.equal(repaired.attempts, 0);
+    assert.equal(repaired.manifest_refreshed, true);
+    assert.deepEqual(
+      await queueStatus({ workspace }).then(({ pending, failed }) => ({ pending, failed })),
+      { pending: 1, failed: 0 },
+    );
+
+    const secondRun = await beginRun({ workspace });
+    const secondClaim = await claimNext({ workspace, lock_token: secondRun.lock_token });
+    assert.equal(secondClaim.job.previous_failure.attempts, 1);
+    assert.equal(secondClaim.post_manifest.ready, true);
+    assert.equal(await exists(secondClaim.post_manifest.browser_handoff.attachment_paths[0]), true);
+    await failJob({ workspace, lock_token: secondRun.lock_token, job_id: secondClaim.job.id, retryable: false, error: 'fixture cleanup' });
+    await endRun({ workspace, lock_token: secondRun.lock_token });
+  });
+  test('operator retry refuses to move a failed job while a worker lock is active', async () => {
+    const workspace = await freshWorkspace('queue-repair-lock-guard');
+    const queued = await enqueueMediaJob({ workspace, ...mediaInput({ max_attempts: 1 }) });
+    const firstRun = await beginRun({ workspace });
+    const firstClaim = await claimNext({ workspace, lock_token: firstRun.lock_token });
+    await failJob({ workspace, lock_token: firstRun.lock_token, job_id: firstClaim.job.id, retryable: false, error: 'fixture' });
+    await endRun({ workspace, lock_token: firstRun.lock_token });
+    const activeRun = await beginRun({ workspace });
+    await expectReject(
+      () => retryFailedJob({ workspace, queue_number: queued.queue_number }),
+      /worker lock is active/,
+    );
+    await endRun({ workspace, lock_token: activeRun.lock_token });
+  });
   test('failed fingerprint remains deduplicated', async () => {
     const workspace = await freshWorkspace('queue-failed-dedupe');
     const fingerprint = 'failed-fingerprint';
-    await enqueueMediaJob({ workspace, ...linkInput({ content_fingerprint: fingerprint, max_attempts: 1 }) });
+    await enqueueMediaJob({ workspace, ...linkInput({ source: 'https://example.org/failed-bundle', content_fingerprint: fingerprint, max_attempts: 1 }) });
     const run = await beginRun({ workspace });
     const claim = await claimNext({ workspace, lock_token: run.lock_token });
     await failJob({ workspace, lock_token: run.lock_token, job_id: claim.job.id, error: 'fixture' });
     await endRun({ workspace, lock_token: run.lock_token });
-    const duplicate = await enqueueMediaJob({ workspace, ...linkInput({ content_fingerprint: fingerprint }) });
+    const duplicate = await enqueueMediaJob({ workspace, ...linkInput({ source: 'https://example.org/failed-bundle', content_fingerprint: fingerprint }) });
     assert.equal(duplicate.skipped, 'already_queued');
     assert.equal(duplicate.queue_state, 'failed');
   });
@@ -1440,6 +1535,7 @@ function registerQueueTests() {
     for (const name of ['enqueued', 'run_started', 'claimed', 'completed', 'run_ended']) {
       assert.ok(events.some((event) => event.event === name));
     }
+    assert.equal(events.find((event) => event.event === 'completed').queue_number, 1);
   });
   test('expired worker lock recovers unverified processing job', async () => {
     const workspace = await freshWorkspace('queue-recover');
@@ -1461,7 +1557,7 @@ function registerQueueTests() {
     const first = await beginRun({ workspace, lock_ttl_ms: 100 });
     const claim = await claimNext({ workspace, lock_token: first.lock_token });
     const processingPath = path.join(workspace, '.queue', 'fb-second-brain', 'processing', `${claim.job.id}.json`);
-    await fs.writeFile(processingPath, `${JSON.stringify({ ...claim.job, verified_sent: true, verification_note: 'fixture' }, null, 2)}\n`);
+    await fs.writeFile(processingPath, `${JSON.stringify({ ...claim.job, verified_sent: true, submit_started_at: new Date().toISOString(), delivery_receipt: fixtureReceipt(claim.job), verification_note: 'fixture' }, null, 2)}\n`);
     await new Promise((resolve) => setTimeout(resolve, 150));
     const second = await beginRun({ workspace });
     assert.equal(second.recovered.finalized_verified, 1);
@@ -1817,6 +1913,7 @@ function registerProducerTests() {
       workspace,
       type: 'link',
       title: 'Generic caption wrapper',
+      post_text: '', // This fixture changes routing context, not the public caption.
       text: 'save this caption',
       summary: 'Old broad caption summary',
       source,
@@ -1828,6 +1925,7 @@ function registerProducerTests() {
       workspace,
       type: 'link',
       title: 'Crush acceptance line',
+      post_text: '', // This fixture changes routing context, not the public caption.
       text: 'save, amio amar crush ke 2 bacchar ma holeo mene nibo',
       summary: 'Clean narrow crush summary',
       source,
@@ -1860,6 +1958,7 @@ function registerProducerTests() {
       workspace,
       type: 'image',
       title: 'Unclassified image',
+      post_text: '', // This fixture changes routing context, not the public caption.
       text: 'save',
       source: 'Telegram',
       category: 'others',
@@ -1870,6 +1969,7 @@ function registerProducerTests() {
       workspace,
       type: 'image',
       title: 'KID classic funny meme',
+      post_text: '', // This fixture changes routing context, not the public caption.
       text: 'funny meme',
       source: 'Telegram',
       category: 'funny',
@@ -2018,7 +2118,7 @@ function registerProducerTests() {
     assert.equal((await queueStatus({ workspace })).pending, 1);
     assert.equal(second.metadata_log, null);
   });
-  test('producer skips a second memory entry and reuses the queue for re-encoded rich-title media', async () => {
+  test('producer preserves two different media files even when their titles are similar', async () => {
     const workspace = await freshWorkspace('producer-reencoded-title');
     const route = {
       category: 'meme-template',
@@ -2046,16 +2146,17 @@ function registerProducerTests() {
     });
     const memory = await fs.readFile(path.join(workspace, 'memory', 'meme-boi.md'), 'utf8');
     assert.equal(first.status, 'queued');
-    assert.equal(second.status, 'already_queued');
-    assert.equal(second.queue_number, first.queue_number);
-    assert.equal(second.memory.saved, false);
+    assert.equal(second.status, 'queued');
+    assert.notEqual(second.queue_number, first.queue_number);
+    assert.equal(second.memory.saved, true);
     assert.equal(second.classification.category, 'meme-template');
-    assert.equal((memory.match(/^### /gmu) ?? []).length, 1);
-    assert.equal((await queueStatus({ workspace })).pending, 1);
+    assert.equal((memory.match(/^### /gmu) ?? []).length, 2);
+    assert.equal((await queueStatus({ workspace })).pending, 2);
   });
   test('producer uses perceptual image identity when Telegram changes the file bytes and title', async () => {
     const workspace = await freshWorkspace('producer-perceptual-image');
     const route = {
+      post_text: '', // Same caption-free image; incoming routing instructions are not a caption.
       category: 'meme-template',
       memory_file: 'memory/meme-boi.md',
       fb_group: ACTIVE_ROUTES['meme-template'].fb_group,
@@ -2130,7 +2231,7 @@ function registerProducerTests() {
     assert.equal(second.queue.target_group, 'Story-Post boi');
     assert.equal((await queueStatus({ workspace })).pending, 2);
   });
-  test('producer duplicate with new context updates memory but does not requeue', async () => {
+  test('producer preserves a changed public caption as a complete new bundle', async () => {
     const workspace = await freshWorkspace('producer-update');
     const base = {
       workspace,
@@ -2143,9 +2244,10 @@ function registerProducerTests() {
     await prepareDrop({ ...base, text: 'travel first' });
     const second = await prepareDrop({ ...base, text: 'travel new useful context', has_new_info: true });
     const memory = await fs.readFile(path.join(workspace, 'memory', 'travel.md'), 'utf8');
-    assert.equal((await queueStatus({ workspace })).pending, 1);
-    assert.match(memory, /### Update:/);
-    assert.equal(second.status, 'already_queued');
+    assert.equal((await queueStatus({ workspace })).pending, 2);
+    assert.match(memory, /travel first/);
+    assert.match(memory, /travel new useful context/);
+    assert.equal(second.status, 'queued');
     assert.equal(second.post_manifest.ready, true);
   });
   test('producer backfills queue when memory and a skipped-duplicate log exist without delivery', async () => {
@@ -2172,7 +2274,7 @@ function registerProducerTests() {
     assert.equal(after, before);
     assert.equal((await queueStatus({ workspace })).pending, 1);
   });
-  test('producer backfills a legacy relative-path memory entry without appending it again', async () => {
+  test('producer backfills legacy media while preserving previously unrecorded caption', async () => {
     const workspace = await freshWorkspace('producer-legacy-relative-path');
     const attachment = path.join(workspace, 'downloads', 'reference_images', 'meme-boi', 'legacy.jpg');
     const memoryPath = path.join(workspace, 'memory', 'meme-boi.md');
@@ -2196,9 +2298,10 @@ function registerProducerTests() {
     });
     const after = await fs.readFile(memoryPath, 'utf8');
     assert.equal(result.status, 'queued');
-    assert.equal(result.memory.saved, false);
-    assert.equal(result.recovered_queue_gap, true);
-    assert.equal(after, before);
+    assert.equal(result.memory.saved, true);
+    assert.equal(result.recovered_queue_gap, false);
+    assert.notEqual(after, before);
+    assert.match(after, /travel fixture/);
     assert.equal((await queueStatus({ workspace })).pending, 1);
   });
   test('producer blocks a new queue job after a verified prior send', async () => {
@@ -2252,7 +2355,7 @@ function registerProducerTests() {
     assert.equal(result.memory.saved, true);
     assert.equal(result.post_manifest.blocked, 'attachment_missing');
     assert.equal((await queueStatus({ workspace })).pending, 0);
-    assert.equal(result.metadata_log.entry.post_status, 'memory_only');
+    assert.equal(result.metadata_log.entry.post_status, 'failed');
   });
   test('producer treats explicit text with URL as a link and queues it', async () => {
     const workspace = await freshWorkspace('producer-text-url');
@@ -2297,6 +2400,60 @@ function registerProducerTests() {
 }
 
 function registerIntegrationConfigTests() {
+  test('delivery evidence confirms a new text item only with corroborating conversation change', () => {
+    const before = {
+      version: 2, host: 'www.facebook.com', rows: [], composerEmpty: true,
+      messengerConversation: true,
+      path: '/messages/t/fixture',
+      logSignature: 'before-log',
+      deliverySignature: 'before-delivery',
+      mediaSignature: 'before-media',
+      rowCount: 4,
+      mediaCount: 1,
+      rightMediaCount: 1,
+      textCueCount: 0,
+      composerPresent: true,
+      composerContainsCue: false,
+    };
+    const after = {
+      ...before,
+      logSignature: 'after-log',
+      deliverySignature: 'after-delivery',
+      rowCount: 5,
+      textCueCount: 1,
+      rows: [{ key: 'new-text', outgoing: true, attachmentCount: 0, textMatched: true, delivered: true }],
+    };
+    assert.equal(deliveryEvidenceSatisfied(before, after, { messageText: 'fixture text' }).confirmed, true);
+    assert.equal(deliveryEvidenceSatisfied(before, { ...after, rows: before.rows }, { messageText: 'fixture text' }).confirmed, false);
+    assert.equal(deliveryEvidenceSatisfied(before, { ...after, path: '/messages/t/other' }, { messageText: 'fixture text' }).confirmed, false);
+  });
+  test('delivery evidence confirms media-only sends and rejects unchanged or busy-only states', () => {
+    const before = {
+      version: 2, host: 'www.facebook.com', rows: [], composerEmpty: true,
+      messengerConversation: true,
+      path: '/messages/t/fixture-media',
+      logSignature: 'before-log',
+      deliverySignature: 'same-delivery',
+      mediaSignature: 'before-media',
+      rowCount: 2,
+      mediaCount: 3,
+      rightMediaCount: 1,
+      textCueCount: 0,
+      composerPresent: true,
+      composerContainsCue: false,
+    };
+    const mediaAfter = {
+      ...before,
+      logSignature: 'after-log',
+      mediaSignature: 'after-media',
+      mediaCount: 4,
+      rightMediaCount: 2,
+      rows: [{ key: 'new-media', outgoing: true, attachmentCount: 1, textMatched: false, delivered: true }],
+    };
+    assert.equal(deliveryEvidenceSatisfied(before, mediaAfter, { attachmentCount: 1 }).confirmed, true);
+    assert.equal(deliveryEvidenceSatisfied(before, { ...before }, { attachmentCount: 1 }).confirmed, false);
+    assert.equal(deliveryEvidenceSatisfied(before, { ...before, logSignature: 'progress-animation-only' }, { attachmentCount: 1 }).confirmed, false);
+  });
   test('authoritative group map documents both fallbacks and strict priority', async () => {
     const routing = await fs.readFile(
       path.join(DEFAULT_OPENCLAW_ROOT, 'workspace', 'memory', 'fb-messenger-groups.md'),
@@ -2376,7 +2533,10 @@ function registerIntegrationConfigTests() {
     assert.match(helper, /ZeroFreeBSTR/);
     assert.match(helper, /snapshot --efficient/);
     assert.match(helper, /type \$pinRef \$plainPin --submit/);
+    assert.match(helper, /Focus-BrowserTarget/);
+    assert.match(helper, /\[string\]\$TargetId/);
     assert.doesNotMatch(helper, /\b\d{6}\b/);
+    assert.ok(helper.indexOf('$pinRef = Find-PinRef') < helper.indexOf('$securePin = Read-SecurePin'));
   });
   test('Messenger login helper uses encrypted fields and exposes only safe status flags', async () => {
     const helperFile = path.join(DEFAULT_OPENCLAW_ROOT, 'workspace', 'skills', 'fb-second-brain', 'scripts', 'messenger-login-helper.ps1');
@@ -2389,13 +2549,35 @@ function registerIntegrationConfigTests() {
     assert.match(helper, /two_factor_required/);
     assert.match(helper, /notify_yousuf/);
     assert.match(helper, /snapshot --efficient/);
+    assert.match(helper, /Test-AuthenticatedMessenger/);
+    assert.match(helper, /Focus-BrowserTarget/);
+    assert.match(helper, /\[string\]\$TargetId/);
+    assert.ok(helper.indexOf('$before = Get-StableMessengerSnapshot') < helper.indexOf('$credential = Read-SecureCredentialStore'));
     assert.doesNotMatch(helper, /AsPlainText/);
     assert.doesNotMatch(helper, /@[a-z0-9.-]+\.[a-z]{2,}/i);
   });
   test('production cron job has required model, cadence, and isolation', async () => {
     const cronFile = path.join(DEFAULT_OPENCLAW_ROOT, 'cron', 'jobs.json');
-    const config = JSON.parse(await fs.readFile(cronFile, 'utf8'));
-    const matches = config.jobs.filter((job) => job.name === 'FB Second Brain Messenger Queue');
+    const dbPath = path.join(DEFAULT_OPENCLAW_ROOT, 'state', 'openclaw.sqlite');
+    let jobs = [];
+    try {
+      if (await fs.stat(dbPath).then(() => true).catch(() => false)) {
+        const { DatabaseSync } = await import('node:sqlite');
+        const db = new DatabaseSync(dbPath, { readOnly: true });
+        try {
+          const rows = db.prepare('SELECT job_json FROM cron_jobs').all();
+          jobs = rows.map((r) => JSON.parse(r.job_json));
+        } finally {
+          db.close();
+        }
+      } else {
+        const config = JSON.parse(await fs.readFile(cronFile, 'utf8'));
+        jobs = config.jobs || [];
+      }
+    } catch {
+      jobs = [];
+    }
+    const matches = jobs.filter((job) => job.name === 'FB Second Brain Messenger Queue');
     assert.equal(matches.length, 1);
     const job = matches[0];
     assert.equal(job.enabled, true);
@@ -2405,21 +2587,55 @@ function registerIntegrationConfigTests() {
     assert.equal(job.schedule.tz, 'Asia/Dhaka');
     assert.equal(job.schedule.staggerMs, 0);
     assert.equal(job.sessionTarget, 'isolated');
-    assert.equal(job.payload.model, 'opencode-go/gpt-5.6-luna');
-    assert.equal(job.payload.thinking, 'high');
-    assert.deepEqual(job.payload.fallbacks, ['opencode-go/minimax-m3']);
+    assert.equal(job.payload.model, 'opencode-go/muse-spark-1.3-contributor');
+    assert.equal(job.payload.thinking, 'ultra');
+    assert.deepEqual(job.payload.fallbacks, [
+      'opencode-go/deepseek-v4-flash-vision-exp',
+      'opencode-go/gpt-5.6-luna',
+      'opencode-go/qwen3.7-plus',
+      'opencode-go/minimax-m3',
+    ]);
     assert.equal(job.payload.lightContext, true);
-    assert.match(job.payload.message, /complete --verified true/);
-    assert.match(job.payload.message, /messenger-login-helper\.ps1/);
-    assert.match(job.payload.message, /two_factor_required/);
-    assert.match(job.payload.message, /2-step verification/);
-    assert.ok(job.payload.message.indexOf('messenger-login-helper.ps1') < job.payload.message.indexOf('Claim and process'));
-    assert.match(job.payload.message, /messenger-pin-helper\.ps1/);
-    assert.match(job.payload.message, /never ask Yousuf/i);
+    assert.match(job.payload.message, /SCRIPTED_WORKFLOW=fb-second-brain-queue-v1/);
+    assert.match(job.payload.message, /run-scripted-messenger-queue\.ps1/);
+    assert.match(job.payload.message, /Do not call browser, message, queue-worker, login\/PIN helpers/i);
+    assert.match(job.payload.message, /Return only its `finalLine`/);
+    assert.match(job.payload.message, /2-step notification/);
     assert.doesNotMatch(job.payload.message, /\b\d{6}\b/);
-    assert.match(job.payload.message, /exactly NO_REPLY/);
-    assert.match(job.payload.message, /FINAL_OUTPUT_GATE \(ABSOLUTE\)/);
+    assert.match(job.payload.message, /NO_REPLY/);
     assert.doesNotMatch(job.payload.message, /@[a-z0-9.-]+\.[a-z]{2,}/i);
+
+    const wrapper = await fs.readFile(
+      path.join(DEFAULT_OPENCLAW_ROOT, 'workspace', 'skills', 'fb-second-brain', 'scripts', 'run-scripted-messenger-queue.ps1'),
+      'utf8',
+    );
+    const scriptedWorker = await fs.readFile(
+      path.join(DEFAULT_OPENCLAW_ROOT, 'workspace', 'skills', 'fb-second-brain', 'scripts', 'drain-messenger-queue.mjs'),
+      'utf8',
+    );
+    assert.match(wrapper, /messenger-login-helper\.ps1/);
+    assert.match(wrapper, /messenger-pin-helper\.ps1/);
+    assert.match(wrapper, /two_factor_required/);
+    assert.match(wrapper, /status = 'empty'; finalLine = 'NO_REPLY'/);
+    assert.match(wrapper, /browserTargetId/);
+    assert.match(wrapper, /--target-id \$script:browserTargetId/);
+    assert.match(wrapper, /close \$script:browserTargetId/);
+    const batchWorker = await fs.readFile(path.join(DEFAULT_OPENCLAW_ROOT, 'workspace', 'skills', 'fb-second-brain', 'scripts', 'queue-batch.mjs'), 'utf8');
+    assert.match(scriptedWorker, /drainQueueBatch\(/);
+    assert.match(batchWorker, /completeJob\(/);
+    assert.match(batchWorker, /verified: true/);
+    assert.match(batchWorker, /retryable: !ambiguous/);
+    assert.match(scriptedWorker, /captureConversationEvidence/);
+    assert.match(scriptedWorker, /deliveryEvidenceSatisfied/);
+    assert.match(scriptedWorker, /waitForTargetComposer/);
+    assert.match(scriptedWorker, /findPageByTargetId/);
+    assert.match(scriptedWorker, /dedicated_messenger_tab_unavailable/);
+    assert.match(batchWorker, /markSubmitStarted/);
+    assert.match(batchWorker, /delivery_receipt: result\.delivery_receipt/);
+    assert.equal((scriptedWorker.match(/sendButton\.click\(/g) ?? []).length, 1);
+    assert.doesNotMatch(scriptedWorker, /composer\.press\(/);
+    assert.doesNotMatch(scriptedWorker, /page\.keyboard\.press\(/);
+    assert.doesNotMatch(scriptedWorker, /role="progressbar"/);
   });
   test('queue contract leaves pending jobs untouched for a 2-step challenge', async () => {
     const contract = await fs.readFile(
@@ -2432,7 +2648,8 @@ function registerIntegrationConfigTests() {
     assert.match(contract, /2-step verification/);
   });
   test('main-cron allowlist contains fb-second-brain', async () => {
-    const config = JSON.parse(await fs.readFile(path.join(DEFAULT_OPENCLAW_ROOT, 'openclaw.json'), 'utf8'));
+    const rawConfig = await fs.readFile(path.join(DEFAULT_OPENCLAW_ROOT, 'openclaw.json'), 'utf8');
+    const config = JSON.parse(rawConfig.replace(/^\uFEFF/, ''));
     const agent = config.agents.list.find((item) => item.id === 'main-cron');
     assert.ok(agent.skills.includes('fb-second-brain'));
   });

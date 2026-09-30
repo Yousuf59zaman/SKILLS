@@ -96,7 +96,7 @@ Choose the smallest proof set that tells a coherent story. A strong set normally
 
 Create a requirement-to-proof mapping before selecting any optional live site or non-CV attachment. The safe CV is the only attachment that does not need a per-job feature mapping. Reject evidence whose rationale is only that it is visually polished, already deployed, or was used in the previous application.
 
-For Yousuf's future cover letters, the mandatory reviewer-link sequence is Accessimate Admin Panel, HeyHomeX Next + Nest Platform, TalentScope Recruiter Platform, and LeAPS. Keep each explanation concise, verify each exact public URL, and place any job-specific `.chatgpt.site` link after them as the final URL. Reorder the four reviewer links only when the current job's relevance materially improves clarity.
+For Yousuf's future cover letters, use the complete [canonical professional proof block](canonical-professional-proof-block.md) after the job-specific opening. Its mandatory reviewer-link sequence is Accessimate Admin Panel, HeyHomeX Next + Nest Platform, TalentScope Recruiter Platform, and LeAPS. Copy the block verbatim by default, verify every exact public URL, and place any job-specific `.chatgpt.site` link after it as the final URL. Do not reorder or rewrite the block unless Yousuf explicitly requests it or a current factual/link/form constraint requires an exception.
 
 Use `https://leaps-nuxt-dashboard.vercel.app` as the default reusable dashboard link after confirming that it opens publicly without Yousuf's session. Include it in every future cover letter unless unavailable, unsafe, or explicitly excluded. Place it in the verified real/OrangeBD-related proof block before any job-specific ChatGPT Sites link:
 
@@ -233,7 +233,7 @@ Use these tie-breakers:
 
 ### Default attachment bundle
 
-Whenever the proposal accepts attachments, include the latest verified Upwork-safe CV PDF exactly once. It is the mandatory anchor file. Select every other file for the current job.
+Whenever the proposal accepts attachments, include the canonical `assets/Yousuf-Zaman-Upwork-Safe-CV.pdf` exactly once. It is the mandatory anchor file. Follow [canonical-upwork-safe-cv.md](canonical-upwork-safe-cv.md): verify the canonical hash, copy that exact asset into the current application folder, verify the copied hash, and never choose a workspace or historical CV merely because it is newer. Select every other file for the current job.
 
 For broadly matching React/dashboard/SaaS work, prefer this proven full evidence pack when all files remain current, safe, and relevant:
 
@@ -241,7 +241,7 @@ For broadly matching React/dashboard/SaaS work, prefer this proven full evidence
 2. the TalentScope responsive mobile gallery PDF;
 3. the Accessimate responsive mobile gallery PDF;
 4. one concise React/dashboard case-study PDF;
-5. the verified Upwork-safe CV PDF.
+5. the hash-verified canonical `Yousuf-Zaman-Upwork-Safe-CV.pdf`.
 
 For a narrower or different role, reduce or replace any non-CV item with more relevant evidence. The CV remains mandatory unless the form has no attachment feature or the client explicitly disallows attachments. Respect the current Upwork file limit, avoid duplicates and filler, and verify every filename in the live form.
 
@@ -256,12 +256,7 @@ Hi <name if known>,
 
 <1–2 lines naming the client's exact outcome/risk and the practical approach.>
 
-I have 2.5 years of professional software development experience, with relevant strength in <job-specific stack/outcome>.
-
-<role-appropriate Accessimate Admin Panel line with https://accessimate-admin-panel-nextjs.vercel.app>
-<role-appropriate HeyHomeX Next + Nest Platform line with https://heyhomex-next-nest-platform.vercel.app>
-<role-appropriate TalentScope line with https://talentscope-recruiter-platform.vercel.app/dashboard>
-<role-appropriate LeAPS line with https://leaps-nuxt-dashboard.vercel.app>
+<insert references/canonical-professional-proof-block.md verbatim>
 
 For the first milestone, I will deliver <specific demonstrable outcome>.
 
@@ -289,7 +284,7 @@ Best,
 Yousuf
 ```
 
-Keep the opening specific enough that it cannot be pasted onto an unrelated job. Include the `2.5 years` tenure once, tailored naturally to the role; do not repeat it or inflate the duration. Avoid clichés, oversized biography, keyword stuffing, and unsupported superlatives.
+Keep the opening specific enough that it cannot be pasted onto an unrelated job. Keep the canonical block stable and put tailoring in the opening, delivery plan, evidence emphasis outside the block, budget, timeline, and closing question. Do not repeat its `2.5 years` fact, company links, project URLs, or disclosure elsewhere. Avoid clichés, oversized biography, keyword stuffing, and unsupported superlatives.
 
 Before saving the ready copy, verify that the exact Accessimate Admin Panel, HeyHomeX Next + Nest Platform, TalentScope dashboard, and LeAPS URLs each appear once and open publicly. Default to those four verified professional/reviewer proofs. Include a generated or job-specific site only when its exact workflow has a current requirement mapping; otherwise omit it. If a `.chatgpt.site` link is used, make it the final URL in the cover letter and follow it only with prose such as the closing question and sign-off. Do not repeat any URL.
 
@@ -347,7 +342,7 @@ Submission status
 
 This file is the recovery source after browser or PC interruption.
 
-Store deadlines and due dates as current-job values, never reusable defaults. Store the absolute path of the verified Upwork-safe CV and mark whether it is visibly attached exactly once.
+Store deadlines and due dates as current-job values, never reusable defaults. Store the absolute application-copy path and canonical SHA-256 of `Yousuf-Zaman-Upwork-Safe-CV.pdf`, and mark whether it is visibly attached exactly once.
 
 ## H. Browser Filling and Submission
 

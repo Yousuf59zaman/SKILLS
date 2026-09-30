@@ -29,6 +29,7 @@ export async function prepareDrop(input = {}) {
     route_override: true,
   };
   const dedupe = await checkDuplicate(enriched);
+  enriched.bundle = dedupe.bundle;
   const memoryDuplicate = Boolean(dedupe.memory_duplicate ?? dedupe.duplicate);
   const deliveryDuplicate = Boolean(dedupe.delivery_duplicate);
   const saveResult = await saveToMemory({
@@ -36,6 +37,7 @@ export async function prepareDrop(input = {}) {
     duplicate: memoryDuplicate,
     dedupe,
     content_fingerprint: dedupe.content_fingerprint,
+    bundle: dedupe.bundle,
   });
   const mediaPresent = isMediaPresent(enriched);
   const logInput = mediaPresent ? {
@@ -55,6 +57,7 @@ export async function prepareDrop(input = {}) {
     attachment_hashes: dedupe.attachment_hashes,
     canonical_urls: dedupe.canonical_urls,
     content_fingerprint: dedupe.content_fingerprint,
+    bundle: dedupe.bundle,
     duplicate: deliveryDuplicate,
     post_status: deliveryDuplicate
       ? 'skipped_duplicate'
@@ -78,6 +81,9 @@ export async function prepareDrop(input = {}) {
       try {
         queue = await enqueueMediaJob({
           ...enriched,
+          // Freeze the reviewed full caption before dedupe's sorted URL set is
+          // attached; metadata normalization must not reorder the user's text.
+          post_text: postManifest.browser_handoff.message_text,
           duplicate: deliveryDuplicate,
           content_fingerprint: dedupe.content_fingerprint,
           canonical_urls: dedupe.canonical_urls,
@@ -90,9 +96,13 @@ export async function prepareDrop(input = {}) {
         queueError = error.message;
       }
     } else {
+      if (classification.post_allowed && !deliveryDuplicate && ['attachment_missing', 'attachment_too_large', 'incomplete_bundle', 'link_missing_url'].includes(postManifest.blocked)) {
+        queueError = `Complete bundle could not be queued: ${postManifest.blocked}. No partial Messenger delivery was created.`;
+      }
       metadataLog = await logMetadata({
         ...logInput,
-        post_status: deliveryDuplicate ? 'skipped_duplicate' : 'memory_only',
+        post_status: queueError ? 'failed' : deliveryDuplicate ? 'skipped_duplicate' : 'memory_only',
+        post_error: queueError,
       });
     }
   }

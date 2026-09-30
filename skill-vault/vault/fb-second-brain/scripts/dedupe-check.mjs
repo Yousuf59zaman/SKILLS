@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { bundleMessageText, equivalentBundle, makeBundleManifest } from './bundle.mjs';
 import {
   attachmentHashes,
   canonicalMediaUrls,
@@ -10,8 +11,6 @@ import {
   normalizeAttachments,
   normalizeText,
   normalizeTitle,
-  perceptualHashDistance,
-  perceptualImageHash,
   printJson,
   readInput,
   readJsonLines,
@@ -28,6 +27,8 @@ export async function checkDuplicate(input = {}) {
   const hashes = await attachmentHashes(input);
   const title = normalizeTitle(input.title);
   const attachmentPaths = normalizeAttachments(input).map((value) => path.resolve(value));
+  let bundle = null;
+  try { if (attachmentPaths.length || urls.length) bundle = makeBundleManifest(input, hashes); } catch { /* Missing files are rejected by the posting guard, not silently deduplicated. */ }
 
   let memoryText = '';
   try {
@@ -130,12 +131,12 @@ export async function checkDuplicate(input = {}) {
     }
 
     memoryMatches.push(...logMatches);
-    if (normalizeText(entry.post_status).toLocaleLowerCase('en-US') === 'sent') {
+    if (normalizeText(entry.post_status).toLocaleLowerCase('en-US') === 'sent' && (!entry.bundle || entry.bundle.fingerprint === bundle?.fingerprint)) {
       deliveryMatches.push(...logMatches.map((match) => ({ ...match, post_status: 'sent' })));
     }
   }
 
-  const activeQueueMatch = await findActiveQueueMatch(workspace, targetRelative, hashes);
+  const activeQueueMatch = await findActiveQueueMatch(workspace, targetRelative, hashes, { ...input, bundle, attachment_hashes: hashes });
   if (activeQueueMatch) {
     reasons.push(`active_queue_${activeQueueMatch.matched_by}`);
     memoryMatches.push({
@@ -147,6 +148,28 @@ export async function checkDuplicate(input = {}) {
     });
   }
 
+  // Historical metadata matched ANY one URL/image/title. It cannot prove a
+  // complete album+caption was saved or delivered. Require the whole identity.
+  if (attachmentPaths.length || urls.length) {
+    const simpleLegacy = bundle && ((bundle.attachment_count === 1 && urls.length === 0 && bundle.message_text_length === 0)
+      || (bundle.attachment_count === 0 && urls.length === 1 && bundleMessageText(input) === urls[0]));
+    const legacyMemory = simpleLegacy ? memoryMatches.filter((match) => ['canonical_url', 'sha256', 'attachment_path'].includes(match.kind)) : [];
+    const legacyDelivery = simpleLegacy ? deliveryMatches.filter((match) => ['canonical_url', 'sha256'].includes(match.kind)) : [];
+    memoryMatches.length = 0;
+    deliveryMatches.length = 0;
+    memoryMatches.push(...legacyMemory);
+    deliveryMatches.push(...legacyDelivery);
+    reasons.length = 0;
+    for (const match of legacyMemory) reasons.push(match.kind === 'sha256' ? 'attachment_hash' : match.kind);
+    if (bundle && lowerMemory.includes(bundle.fingerprint)) memoryMatches.push({ kind: 'bundle_fingerprint', value: bundle.fingerprint, location: targetRelative });
+    for (const entry of logEntries) {
+      if (!bundle || entry?.bundle?.fingerprint !== bundle.fingerprint) continue;
+      memoryMatches.push({ kind: 'bundle_fingerprint', value: bundle.fingerprint, location: 'memory/fb_second_brain_log.jsonl' });
+      if (entry.post_status === 'sent') deliveryMatches.push({ kind: 'bundle_fingerprint', value: bundle.fingerprint, post_status: 'sent' });
+    }
+    if (activeQueueMatch) memoryMatches.push({ kind: activeQueueMatch.matched_by, value: activeQueueMatch.value, location: `.queue/fb-second-brain/${activeQueueMatch.state}` });
+    if (memoryMatches.some((match) => match.kind === 'bundle_fingerprint')) reasons.push('bundle_fingerprint');
+  }
   const uniqueMemoryMatches = uniqueObjects(memoryMatches);
   const uniqueDeliveryMatches = uniqueObjects(deliveryMatches);
   const memoryDuplicate = uniqueMemoryMatches.length > 0;
@@ -172,83 +195,30 @@ export async function checkDuplicate(input = {}) {
     matches: uniqueMemoryMatches,
     delivery_matches: uniqueDeliveryMatches,
     memory_file: targetRelative,
-    canonical_urls: urls,
+    canonical_urls: bundle?.canonical_urls ?? urls,
     attachment_hashes: hashes,
     active_queue_match: activeQueueMatch,
-    content_fingerprint: fingerprintParts.length
+    bundle,
+    content_fingerprint: bundle?.fingerprint ?? (fingerprintParts.length
       ? crypto.createHash('sha256').update(fingerprintParts.sort().join('\n')).digest('hex')
-      : null,
+      : null),
   };
 }
 
-async function findActiveQueueMatch(workspace, targetRelative, incomingHashes) {
-  const incomingSha = new Set(incomingHashes.map((item) => normalizeText(item.sha256)).filter(Boolean));
-  const incomingPerceptual = incomingHashes.map((item) => normalizeText(item.perceptual_hash)).filter(Boolean);
-  if (!incomingSha.size && !incomingPerceptual.length) return null;
+async function findActiveQueueMatch(workspace, targetRelative, incomingHashes, input) {
+  if (!input.bundle) return null;
   const queueRoot = path.join(workspace, '.queue', 'fb-second-brain');
   for (const state of ['pending', 'processing', 'failed']) {
     const directory = path.join(queueRoot, state);
-    let entries = [];
-    try {
-      entries = (await fs.readdir(directory, { withFileTypes: true }))
-        .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
-        .sort((left, right) => left.name.localeCompare(right.name));
-    } catch (error) {
-      if (error?.code === 'ENOENT') continue;
-      throw error;
-    }
-    for (const entry of entries) {
+    let files;
+    try { files = (await fs.readdir(directory)).filter((file) => file.endsWith('.json')).sort(); }
+    catch (error) { if (error?.code === 'ENOENT') continue; throw error; }
+    for (const file of files) {
       let job;
-      try {
-        job = JSON.parse(await fs.readFile(path.join(directory, entry.name), 'utf8'));
-      } catch {
-        continue;
-      }
+      try { job = JSON.parse(await fs.readFile(path.join(directory, file), 'utf8')); } catch { continue; }
       if (normalizeRoute(job.memory_file) !== normalizeRoute(targetRelative)) continue;
-      const jobSha = normalizeLoggedHashes(job.attachment_hashes);
-      const sharedSha = [...incomingSha].find((value) => jobSha.has(value));
-      if (sharedSha) {
-        return {
-          job_id: job.id,
-          queue_number: job.queue_number,
-          state,
-          matched_by: 'attachment_hash',
-          value: sharedSha,
-          distance: 0,
-        };
-      }
-      if (!incomingPerceptual.length) continue;
-      const jobPerceptual = new Set(normalizeLoggedPerceptualHashes(job.attachment_hashes));
-      if (!jobPerceptual.size) {
-        const candidatePaths = [
-          ...(Array.isArray(job.original_attachment_paths) ? job.original_attachment_paths : []),
-          ...(Array.isArray(job.attachment_paths) ? job.attachment_paths : []),
-          ...(Array.isArray(job.attachment_hashes)
-            ? job.attachment_hashes.map((item) => typeof item === 'object' ? item.path : null)
-            : []),
-        ].map(normalizeText).filter(Boolean);
-        for (const candidatePath of [...new Set(candidatePaths)]) {
-          try {
-            const value = await perceptualImageHash(candidatePath);
-            if (value) jobPerceptual.add(value);
-          } catch {}
-        }
-      }
-      for (const incoming of incomingPerceptual) {
-        for (const existing of jobPerceptual) {
-          const distance = perceptualHashDistance(incoming, existing);
-          if (distance <= 6) {
-            return {
-              job_id: job.id,
-              queue_number: job.queue_number,
-              state,
-              matched_by: 'perceptual_hash',
-              value: existing,
-              distance,
-            };
-          }
-        }
-      }
+      const matchedBy = equivalentBundle(job, input, { allowPerceptual: true });
+      if (matchedBy) return { job_id: job.id, queue_number: job.queue_number, state, matched_by: matchedBy, value: job.bundle.fingerprint, distance: 0 };
     }
   }
   return null;

@@ -1,4 +1,4 @@
 interface:
   display_name: "Route OpenClaw Models by Task"
-  short_description: "Route browser actions to Luna safely"
-  default_prompt: "Use $route-openclaw-models-by-task to route explicit browser actions to Luna while keeping ordinary tasks on OmniRoute."
+  short_description: "Enforce Muse-first OpenClaw routing"
+  default_prompt: "Use $route-openclaw-models-by-task to enforce Muse Spark 1.3 Contributor as primary for ordinary, browser/media, and main-cron work while preserving each complete former route as ordered fallbacks."

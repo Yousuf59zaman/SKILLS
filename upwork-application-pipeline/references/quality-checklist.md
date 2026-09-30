@@ -28,6 +28,8 @@ Do not inflate the score. List the top two weaknesses and fix them when possible
 
 - [ ] Every project exists and the named role is accurate.
 - [ ] Live/repository links work and match the description.
+- [ ] The cover letter uses the complete `canonical-professional-proof-block.md` verbatim by default after the job-specific opening; any exception is caused by Yousuf's latest instruction, a verified factual/link change, or a live form limit and is recorded in the durable ready copy.
+- [ ] The canonical block contains `2.5 years` exactly once; the official OrangeBD and Bdjobs URLs exactly once each; the four required reviewer URLs exactly once each; and the fixed production-system versus independently deployed showcase-rebuild distinction.
 - [ ] The exact LeAPS URL (`https://leaps-nuxt-dashboard.vercel.app`) appears once in the cover letter, was rechecked without the owner session, and uses truthful full-stack portfolio/reviewer-mode wording (Nuxt 4, NestJS, Prisma/PostgreSQL) without implying an OrangeBD or client production backend; any omission is explained by unavailability, safety, or an explicit user instruction.
 - [ ] The exact Accessimate Admin Panel URL (`https://accessimate-admin-panel-nextjs.vercel.app`) appears once in the cover letter, was rechecked without the owner session, and uses truthful public reviewer-mode wording (Next.js 16, React 19, NestJS 11, Prisma/PostgreSQL, admin/citizen panels) without implying a client-owned production system; its existing project name, product branding, and URL remain unchanged, and it is not labeled Next.js Multi Panel.
 - [ ] The exact HeyHomeX Next + Nest Platform URL (`https://heyhomex-next-nest-platform.vercel.app`) appears once, was rechecked without the owner session, and its reviewer entry works. It is described as Yousuf's independent full-stack reviewer conversion based on his contribution to OrangeBD's real HeyHomeX platform, using Next.js 16, React 19, NestJS 11, Prisma/PostgreSQL, HttpOnly reviewer sessions, role-based workflows, and fictional seeded data; the no-production-site/API/backend distinction is explicit, and neither the official OrangeBD HeyHomeX domain nor the retired Nuxt reviewer URL is used as proposal proof.
@@ -42,13 +44,13 @@ Do not inflate the score. List the top two weaknesses and fix them when possible
 - [ ] Proposed features are phrased as future delivery, not completed work.
 - [ ] Tech stack and architecture claims are technically coherent.
 - [ ] Employment and availability claims reflect current facts.
-- [ ] The cover letter states Yousuf's 2.5 years of professional software development experience exactly once, in natural job-relevant wording.
+- [ ] The job-specific opening, scope, approach, milestone, budget, timeline, availability, and closing question are tailored around the canonical block rather than modifying or duplicating it.
 
 ## Upwork-Safety Audit
 
 - [ ] No pre-contract email, phone, address, personal messaging handle, or off-platform payment request appears in the cover letter, site, CV, PDF, image, or filename.
 - [ ] No request to bypass Upwork, scrape restricted data, or evade platform safeguards.
-- [ ] The selected CV is the Upwork-safe version.
+- [ ] The selected CV was copied from the canonical skill asset, and both files match the SHA-256 recorded in `canonical-upwork-safe-cv.md`; no recency-selected, generated substitute, or contact-bearing CV is used.
 - [ ] Public demo pages do not expose secrets, private keys, internal URLs, or real personal/customer data.
 - [ ] External links are relevant evidence, not a contact funnel.
 - [ ] Current Upwork rules were checked when any policy point was uncertain.
@@ -72,7 +74,7 @@ Do not inflate the score. List the top two weaknesses and fix them when possible
 
 ## PDF and PNG Audit
 
-- [ ] The current verified Upwork-safe CV is attached exactly once whenever the form supports attachments; no regular contact-bearing CV is substituted.
+- [ ] The canonical `Yousuf-Zaman-Upwork-Safe-CV.pdf` is attached exactly once whenever the form supports attachments; its application-copy hash matches the canonical asset and no generated or contact-bearing substitute is used.
 - [ ] Every non-CV attachment is selected for the current job; the full LeAPS/TalentScope/Accessimate/case-study evidence pack is used only when relevant, and any smaller or different bundle has a clear job-specific reason.
 - [ ] Every non-CV attachment has a written `filename -> named current-job requirement` mapping; any unrelated, generic, or previous-application filler was removed.
 - [ ] PDF pages render cleanly with no cut-off text or broken links.
@@ -116,7 +118,7 @@ Do not inflate the score. List the top two weaknesses and fix them when possible
 - [ ] Rank is described as a non-guaranteed live snapshot.
 - [ ] All required fields show complete.
 - [ ] Correct portfolio items and files are attached once.
-- [ ] The Upwork-safe CV filename appears exactly once in the live attachment list.
+- [ ] `Yousuf-Zaman-Upwork-Safe-CV.pdf` appears exactly once in the live attachment list, and the uploaded local source matched the canonical hash.
 - [ ] Proposal has been reread in its rendered form.
 - [ ] Current-turn authorization exists before the final Submit/Send click.
 - [ ] After clicking, confirmation or submitted-proposal status was verified before any retry.
@@ -127,6 +129,6 @@ Do not inflate the score. List the top two weaknesses and fix them when possible
 - [ ] Current form was compared against the saved copy.
 - [ ] Published portfolio items and deployments were checked before recreating anything.
 - [ ] Attachments were restored without duplicates.
-- [ ] The mandatory Upwork-safe CV was restored and verified exactly once.
+- [ ] The mandatory safe CV was recopied from the canonical skill asset, hash-verified, and restored exactly once.
 - [ ] Connects and client activity were refreshed.
 - [ ] Submission status was inspected before resuming.

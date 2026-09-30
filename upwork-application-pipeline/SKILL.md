@@ -9,7 +9,7 @@ description: "Run Yousuf's end-to-end Upwork application workflow: discover and 
 
 Turn a suitable Upwork opportunity into a complete, evidence-backed application while keeping Yousuf in control of job selection, Connects spending, publishing, and final submission. Optimize for trust, relevance, and low client friction rather than generic volume.
 
-Read [references/application-playbook.md](references/application-playbook.md) for the phase-by-phase procedure and [references/quality-checklist.md](references/quality-checklist.md) for proposal, demo, portfolio, and final-review standards.
+Read [references/application-playbook.md](references/application-playbook.md) for the phase-by-phase procedure and [references/quality-checklist.md](references/quality-checklist.md) for proposal, demo, portfolio, and final-review standards. When writing or revising any cover letter, also read and use [references/canonical-professional-proof-block.md](references/canonical-professional-proof-block.md). Before preparing or uploading any CV, read [references/canonical-upwork-safe-cv.md](references/canonical-upwork-safe-cv.md).
 
 ## Non-Negotiable Gates
 
@@ -47,14 +47,14 @@ Apply these defaults unless the current job or Yousuf's latest instruction calls
 - Treat `https://talentscope-recruiter-platform.vercel.app/dashboard` as Yousuf's mandatory **TalentScope Recruiter Platform** proof in every future cover letter, with public source at `https://github.com/Yousuf59zaman/talentscope-recruiter-platform`. Recheck the exact dashboard URL without an owner session before every application, then include it naturally once unless it is unavailable, unsafe, or Yousuf explicitly excludes it. Connect it truthfully to Yousuf's verified Bdjobs.com contribution: he worked on Talent Search/CV Bank recruiter workflows involving candidate discovery, resume purchase, recruiter tools, and subscription access across Angular frontends and ASP.NET Core services. Describe the linked deployment separately as an independent portfolio-safe reviewer modernization with Next.js 16, React 19, NestJS 11, Prisma 7/PostgreSQL, HttpOnly reviewer sessions, server-side search/filter/sort/facets/pagination, saved filters, shortlists, purchase lists, persistent reviewer comments, generated fictional PDF CVs, transactional single/bulk credit unlocks, analytics, and resettable fictional data. Never call it an official Bdjobs product, a client-owned production system, or a migration/reuse of real candidate data. Add the repository only when code or architecture evidence helps.
 - Treat `https://northstar-advisory-consulting.kitgiz-4399.chatgpt.site` as optional proof only for a directly matching one-page business or consulting website that needs the same kind of corporate sections, FAQ, lead form, lightweight motion, semantic HTML, responsive design, or basic SEO. Do not use it for a generic homepage edit, media replacement, React maintenance task, or any job where those implemented workflows are not a named requirement. Recheck unauthenticated access before any permitted use, place it after the mandatory reviewer links as the final URL, describe its branding/content as illustrative, and never imply a real consulting client or business results.
 - In every cover letter, place verified professional/reviewer proof before any job-specific ChatGPT Sites proof. Default link order: Accessimate Admin Panel, HeyHomeX Next + Nest Platform, TalentScope Recruiter Platform, LeAPS, then a current job-specific `.chatgpt.site` URL only when the evidence-relevance gate passes. Give each project one concise, truthful relevance sentence. Accessimate, HeyHomeX Next + Nest Platform, TalentScope, and LeAPS are independent reviewer deployments rather than OrangeBD/Bdjobs production systems; disclose that distinction compactly while linking each to Yousuf's verified contribution or portfolio work. Reorder the four reviewer links only when job relevance materially improves clarity. If a `.chatgpt.site` link is justified, keep it last; otherwise omit the job-specific site entirely.
-- Always include the latest verified **Upwork-safe CV PDF** exactly once whenever the proposal form permits attachments. Treat it as mandatory, not optional. Confirm that it omits pre-contract contact details; never substitute a normal contact-bearing CV. If attachments are unavailable or the client explicitly prohibits them, record that exception in the ready copy and final report.
+- Always include the canonical **Upwork-safe CV PDF** at `assets/Yousuf-Zaman-Upwork-Safe-CV.pdf` exactly once whenever the proposal form permits attachments. Treat it as mandatory, not optional. Verify its SHA-256 against `assets/Yousuf-Zaman-Upwork-Safe-CV.sha256`, copy that exact file into the current application folder, and verify the copied hash before upload. Never select an arbitrary "latest" CV, the rejected compact/generated CV, or a contact-bearing original. If attachments are unavailable or the client explicitly prohibits them, record that exception in the ready copy and final report.
 - Build the rest of the attachment set from the current requirements matrix. For broadly matching React/dashboard/SaaS work, the proven LeAPS/TalentScope/Accessimate evidence pack is only a candidate pool, not a default upload list. Attach a non-CV file only when it proves a named requirement and record that mapping. For other roles, vary, replace, reduce, or omit non-CV files based on relevance, confidentiality, quality, and Upwork's current file limit. Never add duplicates, filler, or a previous application's bundle merely because it is ready.
 - For a small landing-page or business-website application, use Northstar material only when the job specifically needs the workflows it demonstrates. A generic homepage edit, hero-media swap, deployment fix, or narrow React maintenance task does not automatically justify Northstar. Prefer the mandatory safe CV plus zero to three directly mapped work samples.
 - Reuse the **complete application structure**, not stale job facts: fill terms, milestone(s), requested screening answers, a tailored cover letter, up to four relevance-ranked portfolio highlights, a verified attachment set, Connects summary, and final QA. Derive the bid, milestone outcome, deadline/due date, duration, availability wording, and every client-facing answer from the current job; never copy an earlier job's date or promise.
 - Upwork proposal highlights currently allow four items. For a general React/full-stack application, default to CPIS, LeAPS, HeyHomeX, and Next.js Multi Panel, then reorder or replace items according to the approved job. Promote recruiter/search, accessibility, or other domain-specific proof only when it is more relevant. Do not use the retired Salon Booking project in proposals, attachments, or profile highlights.
 - For recruiter, HR-tech, candidate-search, advanced-filtering, or Next.js/NestJS/PostgreSQL roles, promote TalentScope into the four highlights and drop the least-relevant non-domain item.
 - For small fixed budgets, define a paid trial or first milestone with a demonstrable outcome rather than promising the entire production scope.
-- State Yousuf's verified tenure once in every cover letter using a natural job-relevant sentence such as: `I have 2.5 years of professional software development experience.` Preserve the exact `2.5 years` fact, place it near the opening or fit evidence, and do not repeat it or inflate the duration.
+- After the job-specific opening, use the complete [canonical professional proof block](references/canonical-professional-proof-block.md) verbatim by default. It fixes the `2.5 years` experience statement, OrangeBD/Bdjobs company links, four live-project entries, and the production-system versus independently deployed showcase distinction. Keep job-specific scope, approach, milestone, budget, timeline, availability, and closing question outside that block. Change the block only for a current factual/link failure, a live form limit, or Yousuf's explicit latest instruction; preserve its meaning and record any exception.
 - When currently accurate, use: `I can dedicate 20–25 hours per week on a flexible schedule and provide timely progress updates.` Do not invent fixed daily working hours.
 - If a screening question asks about commitments or future part-time availability, answer truthfully that Yousuf works full-time at Orange Business Development and can still provide 20–25 flexible hours per week plus timely progress updates. Do not say he has no other work, and do not volunteer this detail when the client did not ask.
 - Prefer the minimum live Connects boost needed for an approved target, including first place, but never spend optional Connects without Yousuf approving the exact boost and total. Never promise that a live rank will hold.
@@ -128,7 +128,7 @@ The showcase must be a real product experience, not a proposal website:
 
 Match portfolio items to the job rather than using a fixed order. Verify all titles, descriptions, skills, URLs, and screenshots. For private work, use sanitized or illustrative visuals and state the actual contribution without exposing client data. Treat earlier project notes as cautious defaults; current repositories and verified evidence override them.
 
-Locate and verify the latest Upwork-safe CV that omits direct contact details before a contract. Add it exactly once to every proposal that accepts attachments. Check the current Upwork rules in the UI/help content when uncertain. Keep all pre-contract communication and payment on Upwork.
+Use only the canonical PDF defined in [references/canonical-upwork-safe-cv.md](references/canonical-upwork-safe-cv.md). Verify its expected hash, copy it to the current application's `attachments/` folder as `Yousuf-Zaman-Upwork-Safe-CV.pdf`, verify the copied hash, and add it exactly once to every proposal that accepts attachments. Do not discover a CV by recency or reuse an unverified application copy. Check current Upwork rules in the UI/help content when uncertain. Keep all pre-contract communication and payment on Upwork.
 
 Attachments should complement the proposal:
 
@@ -150,9 +150,9 @@ Write every cover letter from the current post and requirements matrix. Reuse pr
 The cover letter should:
 
 1. open with the client's exact outcome or risk;
-2. naturally state that Yousuf has 2.5 years of professional software development experience;
+2. insert the complete [canonical professional proof block](references/canonical-professional-proof-block.md) after the opening, preserving its experience statement, company links, live-project order, descriptions, and disclosure by default;
 3. state the proposed first milestone and what will be demonstrable;
-4. include Accessimate Admin Panel, HeyHomeX Next + Nest Platform, TalentScope Recruiter Platform, and LeAPS once each before any job-specific ChatGPT Sites URL, with concise truthful relevance and reviewer/production distinctions;
+4. keep the four canonical live-project URLs once each before any job-specific ChatGPT Sites URL; do not duplicate them elsewhere in the letter;
 5. prove fit with two or three verified projects and the actual role;
 6. give a realistic phased timeline, budget, availability, and communication plan;
 7. answer all requested architecture, infrastructure, support, or team questions;
@@ -179,7 +179,7 @@ For Connects:
 
 ### 8. Fill, Review, and Hand Off
 
-Fill the already-open Upwork tab when available. Upload the intended files and verify filenames, thumbnail/render, links, amounts, dates, screening answers, profile highlights, and Connects. Confirm that the Upwork-safe CV appears exactly once in the live attachment list. Never rely on a stale screenshot for final totals.
+Fill the already-open Upwork tab when available. Upload the intended files and verify filenames, thumbnail/render, links, amounts, dates, screening answers, profile highlights, and Connects. Confirm that `Yousuf-Zaman-Upwork-Safe-CV.pdf` appears exactly once in the live attachment list and that the uploaded local source matched the canonical hash. Never rely on a stale screenshot for final totals.
 
 Run the rubric in [references/quality-checklist.md](references/quality-checklist.md), report the score with concrete weaknesses, fix the fixable issues, then re-review. Keep the application tab open at the final confirmation screen.
 
@@ -192,7 +192,7 @@ When Chrome or the PC restarts:
 1. inspect the current Upwork proposal tab and submission status;
 2. reopen the durable application folder;
 3. compare the current form against `proposal-ready-copy.txt`;
-4. restore fields and attachments without duplicating published items;
+4. restore fields and job-specific attachments without duplicating published items, but recopy the canonical safe CV from the skill asset and reverify its hash instead of trusting a stale application copy;
 5. repeat live Connects and final QA checks;
 6. preserve the same submission gate.
 
@@ -203,7 +203,7 @@ The workflow is complete only when the approved scope has:
 - a verified job/client brief and requirements matrix;
 - truthful, job-specific proof;
 - a public, unauthenticated showcase link when used;
-- tested PDF/PNG/CV attachments when used;
+- tested PDF/PNG attachments when used and the hash-verified canonical safe CV exactly once whenever attachments are supported;
 - a complete proposal, screening answers, budget, milestones, and dates;
 - a documented Connects total and live rank snapshot;
 - a final QA score and resolved material errors;

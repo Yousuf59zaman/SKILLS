@@ -49,9 +49,9 @@ Only `SKILL.md` is required. Optional folders can be present when the child skil
 
 - `taskbar-zorder`: Diagnose and control Windows taskbar Z-order so normal app windows can cover or stay above the taskbar/footer. Use for `Shell_TrayWnd`, `Shell_SecondaryTrayWnd`, taskbar topmost state, app-over-taskbar behavior, the persistent `KeepTaskbarLowered` watcher, duplicate watcher prevention, and current-user logon autostart.
 - `setup-relay-ai-claude-go`: Install, repair, and verify Relay AI 0.4.0 with signed Claude Desktop, secure OpenCode Go credential rotation, live Go favorites, and Relay/Codex configuration on Windows.
-- `setup-openclaw-opencode-go`: Keep OpenClaw on direct OpenCode Go, preserve the configured four-agent ordinary-chat route, and keep `main-cron` on Luna/high with MiniMax M3 as its single model fallback.
-- `route-openclaw-models-by-task`: Route coding, visual/tool, planning/review/security, documentation, video, and cron work to the requested task-specific models.
-- `fallback-openclaw-models-by-capability`: Preserve image, video, tool, coding, and reasoning capabilities while falling back within the approved model set.
+- `setup-openclaw-opencode-go`: Keep OpenClaw on direct OpenCode Go with Muse Spark 1.2 Contributor primary for ordinary, browser/media, and cron work while preserving each complete former route as ordered fallbacks.
+- `route-openclaw-models-by-task`: Audit and enforce the Muse-first ordinary and browser/media/cron chains without letting route-state or future cron creation reorder them.
+- `fallback-openclaw-models-by-capability`: Preserve image, video, tool, coding, and reasoning capabilities while keeping the active Muse-first chains intact.
 - `bypass-opencode-go-cooldown`: Prevent one transient OpenCode Go failure from suspending the entire provider while still surfacing upstream limits.
 - `rotate-opencode-go-auth-profiles`: Prefer the default OpenCode Go profile and alternate fallback profiles only after provider/auth/transient failures; exclude `main-cron`.
 - `setup-windows-altsnap-resizer`: Install and verify AltSnap, its force-resize settings, controls, and Windows Startup shortcut.

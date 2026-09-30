@@ -51,6 +51,8 @@ export async function logMetadata(input = {}) {
     canonical_urls: canonicalMediaUrls(input),
     attachment_hashes: calculatedAttachmentHashes,
     content_fingerprint: normalizeText(input.content_fingerprint) || null,
+    bundle: input.bundle ?? null,
+    delivery_receipt: input.delivery_receipt ?? null,
     duplicate: Boolean(input.duplicate),
     post_status: postStatus,
     post_error: postStatus === 'failed' ? normalizeText(input.post_error).slice(0, 500) || null : null,

@@ -12,6 +12,7 @@ const issues = [];
 const warnings = [];
 const memoryAudit = [];
 const queueAudit = [];
+const activeJobIds = new Set();
 
 async function exists(filePath) {
   try {
@@ -104,6 +105,7 @@ const queueRoot = path.join(workspace, '.queue', 'fb-second-brain');
 for (const state of ['pending', 'processing', 'failed']) {
   for (const filePath of await listJsonFiles(path.join(queueRoot, state))) {
     const job = await readJson(filePath);
+    if (job.id) activeJobIds.add(job.id);
     const route = activeRouteForMemoryFile(job.memory_file);
     const record = {
       queue_number: job.queue_number,
@@ -149,6 +151,33 @@ for (const state of ['pending', 'processing', 'failed']) {
 const queueNumbers = queueAudit.map((job) => job.queue_number).filter(Number.isInteger);
 if (new Set(queueNumbers).size !== queueNumbers.length) {
   issues.push('Active queue states contain duplicate queue numbers.');
+}
+
+// New schema-3 enqueue events carry their schema explicitly. Every such event
+// must still have a durable job or a terminal audit event. This catches a model
+// or cleanup tool removing a just-created job after the producer reported it.
+const eventsPath = path.join(queueRoot, 'events.jsonl');
+const queueEvents = (await exists(eventsPath))
+  ? (await fs.readFile(eventsPath, 'utf8')).split(/\r?\n/).filter(Boolean).flatMap((line) => {
+    try {
+      const event = JSON.parse(line);
+      if (!event || typeof event !== 'object' || Array.isArray(event) || typeof event.event !== 'string' || !event.event.trim()) {
+        throw new Error('invalid_audit_event');
+      }
+      return [event];
+    } catch {
+      issues.push('Queue audit contains an unreadable JSONL record; history needs review.');
+      return [];
+    }
+  })
+  : [];
+const terminalQueueEvents = new Set(['completed', 'reconciled_failed_as_sent', 'orphaned_enqueue_invalidated']);
+const schemaThreeEnqueues = queueEvents.filter((event) => event?.event === 'enqueued' && Number(event?.schema_version) >= 3 && event?.job_id);
+for (const event of schemaThreeEnqueues) {
+  const lifecycle = queueEvents.filter((candidate) => candidate?.job_id === event.job_id);
+  if (!activeJobIds.has(event.job_id) && !lifecycle.some((candidate) => terminalQueueEvents.has(candidate.event))) {
+    issues.push(`Queue item #${event.queue_number} has an unresolved schema-3 enqueue audit event but no durable job.`);
+  }
 }
 
 const quarantineRoot = path.join(queueRoot, 'quarantine');

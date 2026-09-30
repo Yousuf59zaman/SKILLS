@@ -11,6 +11,7 @@ $port = 18789
 $gatewayCmd = Join-Path $openClawHome 'gateway.cmd'
 $manualCmd = Join-Path $openClawHome 'gateway-manual.cmd'
 $serviceCmd = Join-Path $openClawHome 'gateway-service.cmd'
+$hiddenSupervisorVbs = Join-Path $openClawHome 'gateway-supervisor-hidden.vbs'
 $monitorPs1 = Join-Path $openClawHome 'gateway-manual-monitor.ps1'
 $supervisorPs1 = Join-Path $openClawHome 'gateway-supervisor.ps1'
 $autostartPs1 = Join-Path $openClawHome 'gateway-autostart.ps1'
@@ -63,7 +64,7 @@ if (-not (Test-Path -LiteralPath $openClawHome)) {
 }
 New-Item -ItemType Directory -Force -Path $backupRoot | Out-Null
 
-foreach ($path in @($gatewayCmd, $manualCmd, $serviceCmd, $monitorPs1, $supervisorPs1, $autostartPs1, $liveLogPs1, $liveLogCmd)) {
+foreach ($path in @($gatewayCmd, $manualCmd, $serviceCmd, $hiddenSupervisorVbs, $monitorPs1, $supervisorPs1, $autostartPs1, $liveLogPs1, $liveLogCmd)) {
   Backup-IfExists -Path $path
 }
 Write-Status "Backup saved: $backupDir"
@@ -200,6 +201,14 @@ set "OPENCLAW_SERVICE_MARKER=openclaw"
 set "OPENCLAW_SERVICE_KIND=gateway"
 set "OPENCLAW_SERVICE_VERSION=2026.5.27"
 
+rem Service/scheduled callers must not keep a console process group attached to
+rem the real Gateway. Launch the audited hidden supervisor and return; manual
+rem callers still use the synchronous path so the status monitor is preserved.
+if /I "%OPENCLAW_GATEWAY_LAUNCH_MODE%"=="service" (
+  "%WINDIR%\System32\wscript.exe" //B //Nologo "%USERPROFILE%\.openclaw\gateway-supervisor-hidden.vbs"
+  exit /b 0
+)
+
 C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%USERPROFILE%\.openclaw\gateway-supervisor.ps1" gateway --port 18789
 set "OPENCLAW_GATEWAY_EXIT_CODE=%ERRORLEVEL%"
 
@@ -226,9 +235,23 @@ Set-Content -LiteralPath $manualCmd -Value $manualContent -Encoding ASCII
 $serviceContent = @'
 @echo off
 rem Non-interactive/service OpenClaw Gateway launcher. Used by watchdog/scheduled starts.
-call "%USERPROFILE%\.openclaw\gateway.cmd" --service
+rem Keep the service entrypoint detached from any console/task-host process.
+set "OPENCLAW_GATEWAY_NO_MONITOR=1"
+"%WINDIR%\System32\wscript.exe" //B //Nologo "%USERPROFILE%\.openclaw\gateway-supervisor-hidden.vbs"
+exit /b 0
 '@
 Set-Content -LiteralPath $serviceCmd -Value $serviceContent -Encoding ASCII
+
+if (-not (Test-Path -LiteralPath $hiddenSupervisorVbs)) {
+  $hiddenSupervisorContent = @'
+Option Explicit
+Dim shell, command
+Set shell = CreateObject("WScript.Shell")
+command = """C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""C:\Users\User\.openclaw\gateway-supervisor-manual-only.ps1"""
+shell.Run command, 0, False
+'@
+  Set-Content -LiteralPath $hiddenSupervisorVbs -Value $hiddenSupervisorContent -Encoding ASCII
+}
 
 if (Test-Path -LiteralPath $supervisorPs1) {
   $lines = [System.Collections.Generic.List[string]](Get-Content -LiteralPath $supervisorPs1)
@@ -289,12 +312,13 @@ if (Test-Path -LiteralPath $autostartPs1) {
 
 if (-not $SkipScheduledTaskUpdate) {
   try {
-    $taskUpdateOutput = & schtasks.exe /Change /TN "OpenClaw Gateway" /TR "$serviceCmd" 2>&1
+    $hiddenTaskCommand = '{0} //B //Nologo "{1}"' -f (Join-Path $env:WINDIR 'System32\wscript.exe'), $hiddenSupervisorVbs
+    $taskUpdateOutput = & schtasks.exe /Change /TN "OpenClaw Gateway" /TR $hiddenTaskCommand 2>&1
     $taskUpdateExitCode = $LASTEXITCODE
     if ($taskUpdateExitCode -ne 0) {
       throw "schtasks.exe exited with code $taskUpdateExitCode"
     }
-    Write-Status 'Scheduled task OpenClaw Gateway updated to gateway-service.cmd.'
+    Write-Status 'Scheduled task OpenClaw Gateway updated to hidden supervisor entrypoint.'
   } catch {
     Write-Status ("Scheduled task update skipped/denied; files are still patched. Rerun elevated if scheduled action must be changed. {0}" -f $_.Exception.Message)
   }

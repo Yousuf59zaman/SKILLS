@@ -4,9 +4,9 @@ import path from 'node:path';
 import {
   DEFAULT_WORKSPACE,
   activeRouteForMemoryFile,
+  attachmentHashes,
   ensureParent,
   isMain,
-  mediaTitleSimilarity,
   normalizeAttachments,
   normalizeText,
   nowDhaka,
@@ -16,6 +16,7 @@ import {
 } from './lib.mjs';
 import { logMetadata } from './log-metadata.mjs';
 import { prepareFbPost } from './post-to-fb-group.mjs';
+import { bundleMatchesManifest, equivalentBundle, makeBundleManifest, validateDeliveryReceipt } from './bundle.mjs';
 
 const QUEUE_RELATIVE_ROOT = path.join('.queue', 'fb-second-brain');
 const LOCK_TTL_MS = 80 * 60 * 1000;
@@ -42,6 +43,12 @@ export async function enqueueMediaJob(input = {}) {
         : input.log_metadata_input,
     };
   }
+  const preflight = await prepareFbPost(input);
+  if (!preflight.ready) return { queued: false, skipped: preflight.blocked, reason: preflight.reason, post_manifest: preflight };
+  const hashes = await attachmentHashes(input);
+  const bundle = makeBundleManifest(input, hashes);
+  if (input.bundle && !bundleMatchesManifest(input.bundle, bundle)) throw new Error('bundle_changed_before_enqueue');
+  input = { ...input, bundle, post_text: preflight.browser_handoff.message_text, attachment_hashes: hashes, canonical_urls: bundle.canonical_urls, content_fingerprint: bundle.fingerprint };
   const locations = await ensureQueue(input);
   await ensureQueueNumbers(locations);
   const identityKey = queueIdentityKey(input);
@@ -52,7 +59,7 @@ async function enqueueMediaJobLocked(input, locations) {
   const activeMatch = input.existing_queue_match;
   if (activeMatch?.job_id || Number.isInteger(activeMatch?.queue_number)) {
     const existing = await findByIdentity(locations, activeMatch);
-    if (existing) {
+    if (existing && equivalentBundle(existing.job, input, { allowPerceptual: normalizedRoute(existing.job.memory_file) === normalizedRoute(input.memory_file) })) {
       return reuseExistingJob(
         locations,
         existing,
@@ -64,7 +71,7 @@ async function enqueueMediaJobLocked(input, locations) {
   const fingerprint = normalizeText(input.content_fingerprint);
   if (fingerprint) {
     const existing = await findByFingerprint(locations, fingerprint);
-    if (existing) {
+    if (existing && equivalentBundle(existing.job, input)) {
       return reuseExistingJob(locations, existing, input, 'content_fingerprint');
     }
   }
@@ -100,6 +107,8 @@ async function enqueueMediaJobLocked(input, locations) {
       attachment_paths: queuedAttachments,
       browser_profile: normalizeText(input.browser_profile) || 'openclaw',
     };
+    const copiedBundle = makeBundleManifest(postInput, await attachmentHashes(postInput));
+    if (!bundleMatchesManifest(input.bundle, copiedBundle)) throw new Error('bundle_payload_copy_integrity_failed');
     const postManifest = await prepareFbPost(postInput);
     if (!postManifest.ready) {
       if (queuedAttachments.length) await fs.rm(finalPayload, { recursive: true, force: true });
@@ -114,7 +123,9 @@ async function enqueueMediaJobLocked(input, locations) {
     const queueNumber = await allocateQueueNumber(locations);
     const createdAt = nowDhaka();
     const job = {
-      schema_version: 2,
+      schema_version: 3,
+      bundle: copiedBundle,
+      expected_attachment_count: copiedBundle.attachment_count,
       id: jobId,
       queue_number: queueNumber,
       state: 'pending',
@@ -132,12 +143,13 @@ async function enqueueMediaJobLocked(input, locations) {
       category: normalizeText(input.category),
       memory_file: normalizeText(input.memory_file),
       fb_group: normalizeText(input.fb_group),
-      post_text: normalizeText(input.post_text ?? input.accompanying_text),
+      post_text: postManifest.browser_handoff.message_text,
       privacy_reviewed: Boolean(input.privacy_reviewed),
       original_attachment_paths: originalAttachments,
       attachment_paths: queuedAttachments,
       payload_dir: queuedAttachments.length ? finalPayload : null,
       canonical_urls: normalizeStringArray(input.canonical_urls),
+      authoritative_urls: Array.isArray(input.authoritative_urls) ? input.authoritative_urls : undefined,
       attachment_hashes: Array.isArray(input.attachment_hashes) ? input.attachment_hashes : [],
       post_manifest: postManifest,
       log_metadata_input: input.log_metadata_input ?? {
@@ -159,6 +171,7 @@ async function enqueueMediaJobLocked(input, locations) {
         duplicate: false,
       },
     };
+    job.log_metadata_input = { ...job.log_metadata_input, bundle: copiedBundle, content_fingerprint: copiedBundle.fingerprint };
 
     const pendingPath = path.join(locations.pending, `${jobId}.json`);
     await writeJsonAtomic(pendingPath, job);
@@ -167,6 +180,7 @@ async function enqueueMediaJobLocked(input, locations) {
       event: 'enqueued',
       job_id: jobId,
       queue_number: queueNumber,
+      schema_version: job.schema_version,
       fingerprint: job.content_fingerprint,
     });
     return {
@@ -176,6 +190,7 @@ async function enqueueMediaJobLocked(input, locations) {
       target_group: job.fb_group,
       queue_file: toWorkspaceRelative(locations.workspace, pendingPath),
       payload_paths: queuedAttachments.map((item) => toWorkspaceRelative(locations.workspace, item)),
+      bundle: { attachment_count: copiedBundle.attachment_count, link_count: copiedBundle.canonical_urls.length, has_text: copiedBundle.message_text_length > 0 },
       post_manifest: postManifest,
     };
   } catch (error) {
@@ -187,40 +202,58 @@ async function enqueueMediaJobLocked(input, locations) {
 
 export async function beginRun(input = {}) {
   const locations = await ensureQueue(input);
-  const token = crypto.randomUUID();
-  const acquiredAt = new Date();
-  const lock = {
-    token,
-    owner: normalizeText(input.owner) || 'main-cron',
-    acquired_at: nowDhaka(acquiredAt),
-    expires_at: nowDhaka(new Date(acquiredAt.getTime() + positiveInteger(input.lock_ttl_ms, LOCK_TTL_MS))),
-  };
-
-  try {
-    const handle = await fs.open(locations.lock, 'wx');
-    await handle.writeFile(`${JSON.stringify(lock, null, 2)}\n`, 'utf8');
-    await handle.close();
-  } catch (error) {
-    if (error?.code !== 'EEXIST') throw error;
-    const current = await readJsonFile(locations.lock).catch(() => null);
+  // Lease creation, expiry takeover and release share the existing short
+  // metadata mutex. A second worker must never observe a half-written lease
+  // and mistake it for a dead owner.
+  const acquisition = await withSequenceLock(locations, async () => {
+    const current = await readWorkerLock(locations);
     if (current && Date.parse(current.expires_at) > Date.now()) {
       return { acquired: false, busy: true, lock: publicLock(current) };
     }
-
-    const stalePath = `${locations.lock}.stale-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
-    try {
+    if (current) {
+      const stalePath = `${locations.lock}.stale-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
       await fs.rename(locations.lock, stalePath);
-    } catch (renameError) {
-      if (renameError?.code === 'ENOENT') return beginRun(input);
-      throw renameError;
+      await fs.rm(stalePath, { force: true });
     }
-    await fs.rm(stalePath, { force: true });
-    return beginRun(input);
-  }
+    const acquiredAt = new Date();
+    const lock = {
+      token: crypto.randomUUID(),
+      owner: normalizeText(input.owner) || 'main-cron',
+      acquired_at: nowDhaka(acquiredAt),
+      expires_at: nowDhaka(new Date(acquiredAt.getTime() + positiveInteger(input.lock_ttl_ms, LOCK_TTL_MS))),
+    };
+    let handle;
+    try {
+      handle = await fs.open(locations.lock, 'wx');
+      await handle.writeFile(`${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+      await handle.sync();
+    } catch (error) {
+      if (handle) {
+        await handle.close().catch(() => {});
+        handle = null;
+        await fs.rm(locations.lock, { force: true }).catch(() => {});
+      }
+      throw error;
+    } finally {
+      if (handle) await handle.close();
+    }
+    return { acquired: true, lock_token: lock.token, expires_at: lock.expires_at };
+  });
+  if (!acquisition.acquired) return acquisition;
 
-  const recovered = await recoverProcessing(locations);
-  await appendEvent(locations, { event: 'run_started', lock_token: token, recovered });
-  return { acquired: true, lock_token: token, expires_at: lock.expires_at, recovered };
+  try {
+    const recovered = await recoverProcessing(locations);
+    await appendEvent(locations, { event: 'run_started', lock_token: acquisition.lock_token, recovered });
+    return { ...acquisition, recovered };
+  } catch (error) {
+    // The caller has not received its token yet. Do not strand the lease when
+    // recovery or its audit write fails; never remove a replacement owner's.
+    await withSequenceLock(locations, async () => {
+      const current = await readWorkerLock(locations);
+      if (current?.token === acquisition.lock_token) await fs.rm(locations.lock, { force: true });
+    }).catch(() => {});
+    throw error;
+  }
 }
 
 export async function claimNext(input = {}) {
@@ -228,11 +261,17 @@ export async function claimNext(input = {}) {
   const token = await requireLock(locations, input.lock_token);
   const candidates = await listJobs(locations.pending);
   const now = Date.now();
+  const excluded = new Set(Array.isArray(input.exclude_job_ids) ? input.exclude_job_ids : []);
 
   for (const candidate of candidates) {
+    if (excluded.has(candidate.job.id)) continue;
     const availableAt = Date.parse(candidate.job.available_at || candidate.job.created_at || 0);
     if (Number.isFinite(availableAt) && availableAt > now) continue;
 
+    // Stored manifests are caches, never authorities. Rebuild from the durable
+    // job payload at claim time so an old route update or copied manifest cannot
+    // reference files that no longer belong to this queue item.
+    const refreshed = await refreshJobPostManifest(candidate.job, input.browser_profile);
     const processingPath = path.join(locations.processing, path.basename(candidate.file));
     try {
       await fs.rename(candidate.file, processingPath);
@@ -242,17 +281,96 @@ export async function claimNext(input = {}) {
     }
 
     const job = {
-      ...candidate.job,
+      ...refreshed.job,
       state: 'processing',
       claimed_at: nowDhaka(),
       claim_token: token,
     };
     await writeJsonAtomic(processingPath, job);
-    await appendEvent(locations, { event: 'claimed', job_id: job.id, lock_token: token });
+    if (refreshed.changed) {
+      await appendEvent(locations, {
+        event: 'manifest_refreshed',
+        job_id: job.id,
+        queue_number: job.queue_number,
+      });
+    }
+    await appendEvent(locations, {
+      event: 'claimed',
+      job_id: job.id,
+      queue_number: job.queue_number,
+      lock_token: token,
+    });
     return { claimed: true, job, post_manifest: job.post_manifest };
   }
 
   return { claimed: false, empty: candidates.length === 0, deferred: candidates.length > 0 };
+}
+
+export async function retryFailedJob(input = {}) {
+  const locations = await ensureQueue(input);
+  const activeLock = await readWorkerLock(locations);
+  if (activeLock && Date.parse(activeLock.expires_at) > Date.now()) {
+    throw new Error('Cannot retry a failed job while the queue worker lock is active');
+  }
+
+  const requestedJobId = normalizeText(input.job_id);
+  const requestedQueueNumber = Number(input.queue_number);
+  const failedJobs = await listJobs(locations.failed);
+  const candidate = failedJobs.find(({ job }) => (
+    (requestedJobId && job.id === requestedJobId)
+    || (Number.isInteger(requestedQueueNumber) && requestedQueueNumber > 0 && Number(job.queue_number) === requestedQueueNumber)
+  ));
+  if (!candidate) throw new Error('Failed queue job was not found');
+  if (candidate.job.verified_sent) throw new Error('Verified-sent jobs cannot be retried');
+  if ((candidate.job.submit_started_at || candidate.job.delivery_uncertain) && (input.confirmed_not_sent !== true || !normalizeText(input.reason))) {
+    throw new Error('Uncertain delivery requires explicit confirmed_not_sent=true and a review reason; automatic replay is forbidden');
+  }
+
+  const refreshed = await refreshJobPostManifest(candidate.job, input.browser_profile);
+  if (!refreshed.job.post_manifest?.ready) {
+    throw new Error(`Failed queue job is not repairable: ${normalizeText(refreshed.job.post_manifest?.blocked) || 'manifest_invalid'}`);
+  }
+
+  const requeuedAt = nowDhaka();
+  const updated = {
+    ...refreshed.job,
+    state: 'pending',
+    attempts: 0,
+    available_at: requeuedAt,
+    claim_token: null,
+    claimed_at: null,
+    submit_started_at: null,
+    delivery_uncertain: false,
+    previous_failure: {
+      attempts: Number(candidate.job.attempts || 0),
+      error: normalizeText(candidate.job.last_error).slice(0, 500),
+      failed_at: candidate.job.last_failed_at ?? null,
+    },
+    last_error: null,
+    repair_note: normalizeText(input.reason).slice(0, 200) || 'Revalidated durable payload and rebuilt the Messenger handoff.',
+    repaired_at: requeuedAt,
+  };
+  const destination = path.join(locations.pending, path.basename(candidate.file));
+  await fs.access(destination).then(
+    () => { throw new Error('Pending destination already exists for failed queue job'); },
+    (error) => { if (error?.code !== 'ENOENT') throw error; },
+  );
+  await writeJsonAtomic(candidate.file, updated);
+  await fs.rename(candidate.file, destination);
+  await appendEvent(locations, {
+    event: 'failed_job_requeued',
+    job_id: updated.id,
+    queue_number: updated.queue_number,
+    previous_attempts: updated.previous_failure.attempts,
+  });
+  return {
+    requeued: true,
+    job_id: updated.id,
+    queue_number: updated.queue_number,
+    target_group: updated.fb_group,
+    attempts: updated.attempts,
+    manifest_refreshed: refreshed.changed,
+  };
 }
 
 export async function completeJob(input = {}) {
@@ -266,6 +384,8 @@ export async function completeJob(input = {}) {
   const jobPath = path.join(locations.processing, `${jobId}.json`);
   const job = await readJsonFile(jobPath);
   if (job.claim_token !== token) throw new Error('Job is not claimed by this queue lock');
+  const receipt = validateDeliveryReceipt(job, input.delivery_receipt);
+  if (!job.submit_started_at) throw new Error('complete_requires_durable_submit_marker');
 
   const completed = {
     ...job,
@@ -273,13 +393,127 @@ export async function completeJob(input = {}) {
     verified_sent: true,
     verified_at: nowDhaka(),
     verification_note: verificationNote.slice(0, 500),
+    delivery_receipt: receipt,
   };
   await writeJsonAtomic(jobPath, completed);
   const logResult = await logSentJob(locations, completed);
-  await appendEvent(locations, { event: 'completed', job_id: jobId, verification_note: completed.verification_note });
+  await appendEvent(locations, {
+    event: 'completed',
+    job_id: jobId,
+    queue_number: completed.queue_number,
+    verification_note: completed.verification_note,
+  });
   await fs.rm(jobPath, { force: true });
   await removePayload(locations, completed.payload_dir);
   return { completed: true, job_id: jobId, logged: logResult.logged || logResult.skipped === 'event_already_logged' };
+}
+
+// Resolve an uncertain post-Send failure only after an independent browser
+// check proves the exact complete bundle survived a full Messenger reload.
+// This never sends or requeues the job; it only records an already-committed
+// delivery and then performs the normal verified payload cleanup.
+export async function reconcileFailedJob(input = {}) {
+  const locations = await ensureQueue(input);
+  await requireLock(locations, input.lock_token);
+  const requestedJobId = normalizeText(input.job_id);
+  const requestedQueueNumber = Number(input.queue_number);
+  const failedJobs = await listJobs(locations.failed);
+  const candidate = failedJobs.find(({ job }) => (
+    (requestedJobId && job.id === requireJobId(requestedJobId))
+    || (Number.isInteger(requestedQueueNumber) && requestedQueueNumber > 0 && Number(job.queue_number) === requestedQueueNumber)
+  ));
+  if (!candidate) throw new Error('Failed queue job was not found');
+  const job = candidate.job;
+  if (!job.submit_started_at || job.delivery_uncertain !== true) throw new Error('reconcile_requires_uncertain_submit_marker');
+  if (input.verified !== true || input.persistence_verified !== true || input.reconciliation_method !== 'server_reload_persistence') {
+    throw new Error('reconcile_requires_server_reload_persistence');
+  }
+  const verificationNote = normalizeText(input.verification_note);
+  if (!verificationNote) throw new Error('reconcile requires a concise verification_note');
+  const receipt = validateDeliveryReceipt(job, input.delivery_receipt);
+  const completed = {
+    ...job,
+    state: 'sent',
+    verified_sent: true,
+    verified_at: nowDhaka(),
+    reconciled_at: nowDhaka(),
+    reconciliation_method: 'server_reload_persistence',
+    verification_note: verificationNote.slice(0, 500),
+    delivery_receipt: receipt,
+  };
+  await writeJsonAtomic(candidate.file, completed);
+  const logResult = await logSentJob(locations, completed);
+  await appendEvent(locations, {
+    event: 'reconciled_failed_as_sent',
+    job_id: completed.id,
+    queue_number: completed.queue_number,
+    reconciliation_method: completed.reconciliation_method,
+  });
+  await fs.rm(candidate.file, { force: true });
+  await removePayload(locations, completed.payload_dir);
+  return {
+    completed: true,
+    reconciled: true,
+    job_id: completed.id,
+    queue_number: completed.queue_number,
+    logged: logResult.logged || logResult.skipped === 'event_already_logged',
+  };
+}
+
+// Close an audit-only enqueue that a post-success model tool deleted before it
+// was ever claimed. This is deliberately narrower than repair/requeue: a job
+// with a remaining file/payload or any worker lifecycle event needs inspection.
+export async function invalidateOrphanedEnqueue(input = {}) {
+  const locations = await ensureQueue(input);
+  await requireLock(locations, input.lock_token);
+  const jobId = requireJobId(input.job_id);
+  const queueNumber = Number(input.queue_number);
+  if (!validQueueNumber(queueNumber)) throw new Error('A valid queue_number is required');
+  if (input.reason_code !== 'stale_cross_turn_media_attribution' || input.operator_verified_no_external_action !== true) {
+    throw new Error('orphan_invalidation_requires_verified_stale_cross_turn_proof');
+  }
+  if (await findByIdentity(locations, { job_id: jobId, queue_number: queueNumber })) {
+    throw new Error('orphan_invalidation_refuses_existing_job');
+  }
+  const payloadPath = path.join(locations.payloads, jobId);
+  if (await fs.stat(payloadPath).then(() => true).catch(() => false)) {
+    throw new Error('orphan_invalidation_refuses_existing_payload');
+  }
+  const events = (await readJsonLines(locations.events)).filter((event) => event?.job_id === jobId);
+  const enqueued = events.filter((event) => event.event === 'enqueued' && Number(event.queue_number) === queueNumber);
+  if (enqueued.length !== 1) throw new Error('orphan_invalidation_requires_one_matching_enqueue');
+  if (events.some((event) => event.event === 'orphaned_enqueue_invalidated')) {
+    return { invalidated: false, skipped: 'already_invalidated', job_id: jobId, queue_number: queueNumber };
+  }
+  const unsafeLifecycle = events.filter((event) => event.event !== 'enqueued');
+  if (unsafeLifecycle.length) throw new Error('orphan_invalidation_refuses_worker_lifecycle');
+  await appendEvent(locations, {
+    event: 'orphaned_enqueue_invalidated',
+    job_id: jobId,
+    queue_number: queueNumber,
+    reason_code: 'stale_cross_turn_media_attribution',
+    external_action: false,
+  });
+  return { invalidated: true, job_id: jobId, queue_number: queueNumber, external_action: false };
+}
+
+// Persist before the one Send click. If the process dies anywhere after this
+// point, recovery retains the whole payload for review instead of replaying it.
+export async function markSubmitStarted(input = {}) {
+  const locations = await ensureQueue(input);
+  const jobId = requireJobId(input.job_id);
+  return withIdentityLock(locations, 'submit-' + jobId, async () => {
+    const token = await requireLock(locations, input.lock_token);
+    const jobPath = path.join(locations.processing, `${jobId}.json`);
+    const job = await readJsonFile(jobPath);
+    if (job.claim_token !== token || !job.post_manifest?.ready) throw new Error('submit_requires_valid_claimed_bundle');
+    if (job.submit_started_at || job.verified_sent || job.delivery_uncertain) throw new Error('bundle_submit_already_attempted');
+    const refreshed = await refreshJobPostManifest(job, 'openclaw');
+    if (!refreshed.job.post_manifest?.ready) throw new Error('bundle_integrity_changed_before_send');
+    await writeJsonAtomic(jobPath, { ...job, submit_started_at: nowDhaka() });
+    await appendEvent(locations, { event: 'submit_started', job_id: job.id, queue_number: job.queue_number, attachment_count: job.bundle.attachment_count });
+    return { marked: true };
+  });
 }
 
 export async function failJob(input = {}) {
@@ -293,7 +527,8 @@ export async function failJob(input = {}) {
 
   const attempts = Number(job.attempts || 0) + 1;
   const maxAttempts = positiveInteger(job.max_attempts, DEFAULT_MAX_ATTEMPTS);
-  const retryable = input.retryable !== false && attempts < maxAttempts;
+  const uncertain = Boolean(job.submit_started_at || job.delivery_uncertain || input.send_attempted);
+  const retryable = !uncertain && input.retryable !== false && attempts < maxAttempts;
   const errorMessage = normalizeText(input.error ?? input.post_error) || 'Messenger post failed without details';
   const updated = {
     ...job,
@@ -301,6 +536,7 @@ export async function failJob(input = {}) {
     attempts,
     last_error: errorMessage.slice(0, 500),
     last_failed_at: nowDhaka(),
+    delivery_uncertain: uncertain,
     available_at: retryable
       ? nowDhaka(new Date(Date.now() + retryDelayMs(attempts)))
       : null,
@@ -313,6 +549,7 @@ export async function failJob(input = {}) {
   await appendEvent(locations, {
     event: retryable ? 'retry_scheduled' : 'failed_permanently',
     job_id: jobId,
+    queue_number: job.queue_number,
     attempts,
     error: updated.last_error,
   });
@@ -333,16 +570,24 @@ export async function failJob(input = {}) {
     retry_scheduled: retryable,
     attempts,
     max_attempts: maxAttempts,
+    delivery_uncertain: uncertain,
     available_at: updated.available_at,
   };
 }
 
 export async function endRun(input = {}) {
   const locations = await ensureQueue(input);
-  const token = await requireLock(locations, input.lock_token);
-  await appendEvent(locations, { event: 'run_ended', lock_token: token });
-  await fs.rm(locations.lock, { force: true });
-  return { released: true, lock_token: token };
+  return withSequenceLock(locations, async () => {
+    const token = await requireLock(locations, input.lock_token);
+    try {
+      await appendEvent(locations, { event: 'run_ended', lock_token: token });
+    } finally {
+      // An audit failure remains visible, but cannot strand our completed run.
+      // The metadata mutex prevents this unlink from touching a newer owner.
+      await fs.rm(locations.lock, { force: true });
+    }
+    return { released: true, lock_token: token };
+  });
 }
 
 export async function queueStatus(input = {}) {
@@ -352,13 +597,14 @@ export async function queueStatus(input = {}) {
     listJobs(locations.pending),
     listJobs(locations.processing),
     listJobs(locations.failed),
-    readJsonFile(locations.lock).catch(() => null),
+    withSequenceLock(locations, () => readWorkerLock(locations)),
   ]);
   return {
     queue_root: toWorkspaceRelative(locations.workspace, locations.root),
     pending: pending.length,
     processing: processing.length,
     failed: failed.length,
+    manual_review_required: failed.filter(({ job }) => job.delivery_uncertain === true).length,
     next_available_at: pending[0]?.job?.available_at ?? null,
     last_queue_number: numbering.last_assigned,
     next_queue_number: numbering.next_queue_number,
@@ -407,28 +653,47 @@ async function recoverProcessing(locations) {
   const processing = await listJobs(locations.processing);
   let requeued = 0;
   let finalized = 0;
+  let uncertain = 0;
   for (const candidate of processing) {
     const job = candidate.job;
     if (job.verified_sent) {
+      try {
+        validateDeliveryReceipt(job, job.delivery_receipt);
+        if (!job.submit_started_at) throw new Error('missing_submit_marker');
+      } catch {
+        job.verified_sent = false;
+        job.delivery_uncertain = true;
+      }
+    }
+    if (job.verified_sent) {
       await logSentJob(locations, job);
+      const history = await readJsonLines(locations.events);
+      if (!history.some((event) => event?.event === 'completed' && event.job_id === job.id && event.queue_number === job.queue_number)) {
+        await appendEvent(locations, {
+          event: 'completed', job_id: job.id, queue_number: job.queue_number,
+          recovered_verified: true,
+        });
+      }
       await fs.rm(candidate.file, { force: true });
       await removePayload(locations, job.payload_dir);
       finalized += 1;
       continue;
     }
+    const ambiguous = Boolean(job.submit_started_at || job.delivery_uncertain);
     const recovered = {
       ...job,
-      state: 'pending',
+      state: ambiguous ? 'failed' : 'pending',
+      delivery_uncertain: ambiguous,
       claim_token: null,
       claimed_at: null,
       available_at: nowDhaka(),
-      recovery_note: 'Recovered after the previous worker lock expired or ended unexpectedly.',
+      recovery_note: ambiguous ? 'Send may have committed. Retained complete bundle; inspect before any manual retry.' : 'Recovered before Send after the previous worker ended unexpectedly.',
     };
     await writeJsonAtomic(candidate.file, recovered);
-    await fs.rename(candidate.file, path.join(locations.pending, path.basename(candidate.file)));
-    requeued += 1;
+    await fs.rename(candidate.file, path.join(ambiguous ? locations.failed : locations.pending, path.basename(candidate.file)));
+    if (ambiguous) uncertain += 1; else requeued += 1;
   }
-  return { requeued, finalized_verified: finalized };
+  return { requeued, finalized_verified: finalized, retained_uncertain: uncertain };
 }
 
 async function logSentJob(locations, job) {
@@ -437,6 +702,8 @@ async function logSentJob(locations, job) {
     workspace: locations.workspace,
     event_id: `queue:${job.id}:sent`,
     post_status: 'sent',
+    bundle: job.bundle,
+    delivery_receipt: job.delivery_receipt,
   });
 }
 
@@ -460,13 +727,68 @@ function jobLogInput(job) {
   };
 }
 
+async function readWorkerLock(locations) {
+  let lock;
+  try {
+    lock = await readJsonFile(locations.lock);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw new Error('queue_lock_unreadable');
+  }
+  if (!lock || typeof lock !== 'object' || Array.isArray(lock)
+    || typeof lock.token !== 'string' || !lock.token.trim()
+    || !Number.isFinite(Date.parse(lock.acquired_at))
+    || !Number.isFinite(Date.parse(lock.expires_at))) {
+    throw new Error('queue_lock_unreadable');
+  }
+  return lock;
+}
+
 async function requireLock(locations, rawToken) {
   const token = normalizeText(rawToken);
   if (!token) throw new Error('lock_token is required');
-  const lock = await readJsonFile(locations.lock).catch(() => null);
+  const lock = await readWorkerLock(locations);
   if (!lock || lock.token !== token) throw new Error('Queue lock is missing or owned by another worker');
   if (Date.parse(lock.expires_at) <= Date.now()) throw new Error('Queue lock expired');
   return token;
+}
+
+async function refreshJobPostManifest(job, browserProfile = 'openclaw') {
+  const input = {
+    ...job,
+    attachment_paths: normalizeStringArray(job.attachment_paths),
+    browser_profile: normalizeText(browserProfile) || 'openclaw',
+  };
+  if (Number(job.schema_version) < 3 && !normalizeText(job.post_text)) delete input.post_text;
+  let actualBundle;
+  let integrityError = null;
+  try {
+    if (Number(job.schema_version) >= 3 && !job.bundle) throw new Error('bundle_seal_missing');
+    input.expected_attachment_count = job.bundle?.attachment_count ?? job.original_attachment_paths?.length ?? input.attachment_paths.length;
+    actualBundle = makeBundleManifest(input, await attachmentHashes(input));
+    if (job.bundle && !bundleMatchesManifest(job.bundle, actualBundle)) throw new Error('bundle_payload_integrity_changed');
+  } catch (error) { integrityError = error.message; }
+  const postManifest = integrityError
+    ? { ready: false, blocked: 'bundle_integrity_failed', reason: integrityError, target_group: job.fb_group }
+    : await prepareFbPost({ ...input, bundle: actualBundle });
+  const refreshedJob = {
+    ...job,
+    ...(actualBundle && !integrityError ? { schema_version: 3, bundle: actualBundle, expected_attachment_count: actualBundle.attachment_count, post_text: postManifest.browser_handoff?.message_text ?? input.post_text } : {}),
+    fb_group: normalizeText(postManifest.target_group) || normalizeText(job.fb_group),
+    post_manifest: postManifest,
+  };
+  return {
+    job: refreshedJob,
+    changed: stableJson(job.post_manifest ?? null) !== stableJson(postManifest),
+  };
+}
+
+function stableJson(value) {
+  // prepareFbPost builds properties in a deterministic order.  A replacer made
+  // only from the top-level keys silently removed nested manifest fields, so it
+  // could miss a stale browser handoff.  Preserve the complete manifest when
+  // comparing the durable payload with its cached projection.
+  return JSON.stringify(value);
 }
 
 async function findByFingerprint(locations, fingerprint) {
@@ -601,6 +923,9 @@ async function reuseExistingJob(locations, existing, input, matchedBy) {
     job_id: job.id,
     queue_number: job.queue_number,
     queue_state: existing.state,
+    review_required: existing.state === 'failed',
+    delivery_uncertain: Boolean(job.delivery_uncertain),
+    bundle: job.bundle ? { attachment_count: job.bundle.attachment_count, link_count: job.bundle.canonical_urls.length, has_text: job.bundle.message_text_length > 0 } : null,
     queue_root: toWorkspaceRelative(locations.workspace, locations.root),
     target_group: normalizeText(job.fb_group),
     route_updated: routeUpdated,
@@ -610,21 +935,7 @@ async function reuseExistingJob(locations, existing, input, matchedBy) {
 }
 
 function equivalentJobMatch(job, input) {
-  const inputUrls = new Set(normalizeStringArray(input.canonical_urls));
-  const jobUrls = new Set(normalizeStringArray(job.canonical_urls));
-  if ([...inputUrls].some((value) => jobUrls.has(value))) return 'canonical_url';
-
-  const inputHashes = normalizedHashSet(input.attachment_hashes);
-  const jobHashes = normalizedHashSet(job.attachment_hashes);
-  if ([...inputHashes].some((value) => jobHashes.has(value))) return 'attachment_hash';
-
-  const inputHasAttachment = normalizeAttachments(input).length > 0 || inputHashes.size > 0;
-  const jobHasAttachment = normalizeStringArray(job.original_attachment_paths).length > 0 || jobHashes.size > 0;
-  if (!inputHasAttachment || !jobHasAttachment) return null;
-  const inputMemory = normalizedRoute(input.memory_file);
-  const jobMemory = normalizedRoute(job.memory_file);
-  if (!inputMemory || !jobMemory || inputMemory !== jobMemory) return null;
-  return mediaTitleSimilarity(input.title, job.title).similar ? 'similar_media_title' : null;
+  return equivalentBundle(job, input, { allowPerceptual: normalizedRoute(job.memory_file) === normalizedRoute(input.memory_file) });
 }
 
 function normalizedHashSet(value) {
@@ -709,32 +1020,8 @@ async function writeSequence(locations, lastAssigned) {
 }
 
 function queueIdentityKey(input) {
-  const activeMatch = input.existing_queue_match;
-  const activeIdentity = normalizeText(activeMatch?.job_id)
-    || (Number.isInteger(activeMatch?.queue_number) ? `queue:${activeMatch.queue_number}` : '');
-  const urls = normalizeStringArray(input.canonical_urls).sort();
-  const hashes = (Array.isArray(input.attachment_hashes) ? input.attachment_hashes : [])
-    .flatMap((item) => [
-      normalizeText(typeof item === 'string' ? item : item?.sha256),
-      normalizeText(typeof item === 'object' ? item?.perceptual_hash : ''),
-    ])
-    .filter(Boolean)
-    .sort();
-  const fingerprint = normalizeText(input.content_fingerprint);
-  const identity = activeIdentity
-    ? `active:${activeIdentity}`
-    : urls.length
-      ? `urls:${urls.join('|')}`
-      : hashes.length
-        ? `hashes:${hashes.join('|')}`
-        : fingerprint
-          ? `fingerprint:${fingerprint}`
-          : [
-              `memory:${normalizedRoute(input.memory_file)}`,
-              `source:${normalizeText(input.source)}`,
-              `title:${normalizeText(input.title).toLocaleLowerCase('en-US')}`,
-            ].join('|');
-  return crypto.createHash('sha256').update(identity).digest('hex');
+  if (!input.bundle?.fingerprint) throw new Error('complete_bundle_identity_required');
+  return input.bundle.fingerprint;
 }
 
 async function withIdentityLock(locations, identityKey, run) {
@@ -796,11 +1083,16 @@ async function withSequenceLock(locations, run) {
 async function acquireSequenceLock(locations) {
   const deadline = Date.now() + SEQUENCE_LOCK_WAIT_MS;
   while (Date.now() < deadline) {
+    let handle = null;
     try {
-      const handle = await fs.open(locations.sequenceLock, 'wx');
+      handle = await fs.open(locations.sequenceLock, 'wx');
       await handle.writeFile(`${JSON.stringify({ pid: process.pid, created_at: nowDhaka() })}\n`, 'utf8');
       return handle;
     } catch (error) {
+      if (handle) {
+        await handle.close().catch(() => {});
+        await fs.rm(locations.sequenceLock, { force: true }).catch(() => {});
+      }
       // Windows can surface a contested create-new lock as EPERM/EACCES/EBUSY
       // instead of EEXIST while another process still owns the file handle.
       // They are safe to treat as bounded contention here; genuinely unusable
@@ -839,9 +1131,16 @@ async function listJobs(directory) {
   for (const name of names) {
     const file = path.join(directory, name);
     try {
-      jobs.push({ file, job: await readJsonFile(file) });
-    } catch {
-      // Leave malformed queue files untouched for manual inspection.
+      const job = await readJsonFile(file);
+      if (!job || typeof job !== 'object' || Array.isArray(job) || typeof job.id !== 'string' || !job.id.trim()) {
+        throw new Error('queue_job_unreadable');
+      }
+      jobs.push({ file, job });
+    } catch (error) {
+      // A normal claim/completion can move a file after readdir. Other I/O or
+      // JSON failures are not an empty queue or permission to enqueue again.
+      if (error?.code === 'ENOENT') continue;
+      throw new Error('queue_job_unreadable');
     }
   }
   return jobs.sort((left, right) => {
@@ -858,8 +1157,18 @@ async function readJsonFile(filePath) {
 async function writeJsonAtomic(filePath, value) {
   await ensureParent(filePath);
   const temporary = `${filePath}.tmp-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
-  await fs.writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-  await fs.rename(temporary, filePath);
+  let handle;
+  try {
+    handle = await fs.open(temporary, 'wx');
+    await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, 'utf8');
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    await fs.rename(temporary, filePath);
+  } finally {
+    if (handle) await handle.close().catch(() => {});
+    await fs.unlink(temporary).catch((error) => { if (error?.code !== 'ENOENT') throw error; });
+  }
 }
 
 async function appendEvent(locations, entry) {
@@ -921,6 +1230,10 @@ async function runCli() {
     'assign-numbers': assignMissingQueueNumbers,
     'begin-run': beginRun,
     'claim-next': claimNext,
+    'mark-submit-started': markSubmitStarted,
+    'retry-failed': retryFailedJob,
+    'reconcile-failed': reconcileFailedJob,
+    'invalidate-orphaned-enqueue': invalidateOrphanedEnqueue,
     complete: completeJob,
     fail: failJob,
     'end-run': endRun,

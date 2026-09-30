@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { makeBundleManifest } from './bundle.mjs';
 import path from 'node:path';
 import {
   activeRouteForMemoryFile,
@@ -100,6 +101,8 @@ export async function saveToMemory(input = {}) {
 }
 
 function createMetadata(input, { title, dateSaved, fbGroup, attachmentHashEntries }) {
+  let bundle = input.bundle ?? input.dedupe?.bundle ?? null;
+  if (!bundle) { try { bundle = makeBundleManifest(input, attachmentHashEntries); } catch {} }
   return {
     title,
     category: normalizeText(input.category) || 'unknown',
@@ -112,6 +115,7 @@ function createMetadata(input, { title, dateSaved, fbGroup, attachmentHashEntrie
     attachment_hashes: attachmentHashEntries,
     canonical_urls: canonicalMediaUrls(input),
     content_fingerprint: input.content_fingerprint ?? input.dedupe?.content_fingerprint ?? null,
+    bundle,
   };
 }
 
