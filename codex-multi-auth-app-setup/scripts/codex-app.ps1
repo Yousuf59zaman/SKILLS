@@ -25,6 +25,8 @@
 
 [CmdletBinding()]
 param(
+    [Parameter(Position = 0, Mandatory = $false)]
+    [string]$Account,
     [switch]$NoStop
 )
 
@@ -42,15 +44,10 @@ function Resolve-ChatGptDesktopAumid {
 }
 
 # Optional account switch before restart
-$positional = @()
-foreach ($a in $args) {
-    if ($a -match '^\d+$') { $positional += $a }
-}
-if ($positional.Count -gt 0) {
-    $idx = $positional[0]
-    Write-Host "Switching codex-multi-auth to account $idx ..." -ForegroundColor Cyan
-    & codex-multi-auth switch $idx
-    if ($LASTEXITCODE -ne 0) { throw "codex-multi-auth switch $idx failed (exit $LASTEXITCODE)." }
+if ($Account -and ($Account -match '^\d+$')) {
+    Write-Host "Switching codex-multi-auth to account $Account ..." -ForegroundColor Cyan
+    & codex-multi-auth switch $Account
+    if ($LASTEXITCODE -ne 0) { throw "codex-multi-auth switch $Account failed (exit $LASTEXITCODE)." }
 }
 
 if (-not $NoStop) {

@@ -1,0 +1,4 @@
+interface:
+  display_name: "CPIS RMO to En Banc"
+  short_description: "Safely route CPIS claims from RMO to En Banc"
+  default_prompt: "Use $cpis-rmo-to-enbanc to route these authorized CPIS dockets from RMO to Board En Banc and verify each final state."
