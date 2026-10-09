@@ -1,0 +1,112 @@
+# Project and chat catalog
+
+## Evidence and scope
+
+Derived from the local Codex session-import integration conversation from 2–3 October 2026 and the bridge implementation inspected on 3 October 2026. The catalog snapshot showed 16 projects, 151 verified chats, and zero duplicates. Its enabled watcher task was stopped, but a later check confirmed the catalog was still being updated and was fresh; inspect other watcher processes before starting a second reconciler. Both frontend connections were initialized on the shared backend. These are dated observations, not future acceptance targets. Shared message delivery has its own verification state.
+
+The implementation is a custom local Paseo extension. Package updates can replace its hook. Check the installed package source and runtime paths before reapplying anything.
+
+## Relevant files
+
+All paths below are relative to the discovered bridge directory.
+
+| File | Purpose |
+| --- | --- |
+| `catalog-sync.mjs` | Build the catalog plan, reconcile workspaces and stored chat handles, and verify identities/placement. Accepts injected seams for fixtures; defaults are production. |
+| `catalog-recents.mjs` | Pure standalone-scope selection/planning helpers shared by the reconciler and its fixtures. |
+| `catalog-hook.mjs` | Lazy original-handle import, safe local movement/rename, and local hiding. |
+| `install-catalog-hook.mjs` | Back up and insert the extension at two known package anchors. |
+| `catalog-daemon.mjs` | Ensure the intended Node-hosted Paseo daemon uses the patched server package. |
+| `Start-Catalog.ps1` | Singleton watcher, hook reconciliation, daemon check, event-driven discovery plus polling. |
+| `Install-Catalog.ps1` | Reconcile the per-user logon task `PaseoCodexProjectCatalog`. |
+| `catalog-enabled.json` | Presence enables the watcher loop. Editing an `enabled` value alone does not disable it. |
+| `catalog-status.json` | Timestamp, generation, counts, duplicate/deferred results, and current state. The published copy carries aggregates plus a whitelisted error kind only — never project names, plans, or raw error text, including on failure paths. |
+| `catalog-map.private.json` | Persistent project/workspace/thread mapping and idempotency revisions; do not export. |
+| `catalog-manifest.private.json` | Current allowlisted import plan; do not export. |
+| `catalog-backups` | Package and layout backups; may contain private records. |
+
+The watcher paces approximately every 10 seconds, woken early by filesystem events: new `rollout-*.jsonl` files (Created, incl. Desktop-born chats), session moves/renames (`Renamed` on `*.jsonl`, archive flow included), and local-project/assignment/title metadata edits (`Changed` on the single `.codex-global-state.json` file). Streaming JSONL appends never wake; bursts coalesce to one wake per wait; a flood valve paces pathological rates; watcher errors degrade explicitly with polling intact; exactly one reconciliation runs at a time (reconciler guard plus the task mutex). Server-side-only title changes still arrive via native listing on the next pass. The scheduled task runs hidden at user logon, allows battery operation, refuses parallel instances, and has bounded restart attempts. `Start-Catalog.ps1` also holds `Local\PaseoCodexProjectCatalog`; an unrelated task using the same name must not be overwritten.
+
+## Build the authoritative catalog
+
+1. Require the bridge's `/status` to identify the expected integration, a ready backend, and an initialized Desktop client. The existing reconciler waits for backend readiness and Desktop initialization; verify integration identity before issuing mutations.
+2. Initialize a temporary `/check` RPC connection. Page through `project/list` and `thread/list`; use `archived:false` and `useStateDbOnly:true` for the latter. Page through Paseo agents and workspaces as well. Every pager is bounded (page cap, cursor progress required, cycles rejected): incomplete, unknown, or cyclic enumeration aborts the pass with an aggregate error kind before any plan or removal. Metadata enumeration must not resume all threads. Re-check the backend generation after enumeration; a changed generation reports the pass stale, never verified.
+3. Merge native projects with relevant Desktop state in `.codex-global-state.json`: `local-projects`, `thread-project-assignments`, and `app-server-project-id-by-legacy-project-id-by-host`. Keep legacy/native identity migrations intact.
+4. Resolve membership in this order: native thread `projectId` (resolved through the legacy migration map when present); explicit local project assignment; only for unassigned VS Code threads, an exact normalized root/`cwd` match. A native id or assignment naming nothing known is uncertainty: defer and retain, never relabel Recents, never hide while natively present. Do not place every chat below a matching path prefix. Threads claimed by no rule above are Recents candidates only when `catalog-recents.mjs` accepts them (Desktop originator, real `cwd`, top-level, no probe/background/ephemeral/delegated-source markers; lineage-only forks allowed); everything else stays unplanned and counted.
+5. Normalize Windows paths for comparisons: remove extended path prefixes, normalize separators, resolve, and compare case-insensitively. Preserve actual working-directory spelling when creating records.
+6. Use a short native chat name when suitable; fall back to `session_index.jsonl` display names. Treat local display names as evidence, not a reason to edit raw rollouts.
+
+The verified catalog covers eligible project chats plus eligible standalone Recents chats. Archived threads and ineligible rows (non-Desktop origin, probe/background markers, missing `cwd`, missing folders) are not automatically included by this algorithm. Report those exclusion counts if the user asks why a count differs from the entire Codex history.
+
+## Reconcile placement without taking every writer
+
+Create or find a Paseo project rooted at `<bridge>\Codex` and name it `Codex`. For each native project, collect distinct chat working directories. Use the project root for an empty project. Create a workspace under the container with `source:{kind:'directory',path:cwd,projectId:containerProjectId}`.
+
+Standalone chats live under the stable internal scope `standalone:recents` (never a fabricated native project) in exactly ONE top-level `Recents` folder OUTSIDE the Codex group: a single `Recents` workspace in a separate top-level `Recents` project holds every project-less Desktop chat, each keeping its own native `cwd` (the folder never changes a cwd; enabled by the `catalog-recents-single.json` flag file). The legacy per-cwd `Recents · directory` rows inside the Codex container exist only while that flag file is absent. A chat moving between a project and Recents keeps its existing Paseo agent identity; the move itself still defers while that chat is replying.
+
+For a project with one working directory, use its project name as the workspace title. For several, use `project name · directory basename`. A chat explicitly assigned to another project still keeps its original working directory.
+
+Persist workspace identity and a revision in the mapping. The existing idempotency key uses the native project identity, normalized working directory, and revision; increment the revision only when recreating an archived workspace. Write mapping/manifest files atomically using a temporary file followed by rename.
+
+Write an allowlisted manifest before calling the Paseo importer. Each requested original handle must match the manifest's workspace and exact normalized `cwd`, and that workspace must belong to the intended container — the `Codex` container for project rows, or the top-level `Recents` container (only for rows the manifest places in the single external Recents workspace).
+
+Use the installed client API corresponding to:
+
+```javascript
+client.importAgent({
+  providerId: 'codex',
+  providerHandleId: originalThreadHandle,
+  cwd: originalWorkingDirectory,
+  workspaceId: targetWorkspace,
+  labels: { 'codex.catalog': 'v1', 'codex.catalog.project': nativeProjectHandle },
+});
+```
+
+The extension receives the provider as `input.request.provider`; follow the installed request translation rather than renaming that internal field to the client API's `providerId`.
+
+The hook checks the plan and existing storage via `listByProviderSession('codex', originalThreadHandle)`. Reuse the existing Paseo agent identity. Make changes under `runLifecycleMutation`; reject in-flight replies or active turns. Moving a record must not change its `cwd`.
+
+For a new handle, persist an unopened record with the original handle in `persistence.sessionId` and `nativeHandle`, the available native model/reasoning settings, and original creation time. Return a stored-record snapshot and dispatch stored state; do not eagerly start its runtime. The patched payload builder understands this stored snapshot. Opening the chat performs normal runtime/history hydration later.
+
+For existing live agents, update local placement and emit state without interrupting their runtime, with rollback if storage fails. The existing catalog preserves existing agent configuration; do not overwrite its model on every pass.
+
+## Removal and missing folders
+
+Only hide records managed by `codex.catalog: v1` when their native catalog membership disappears, and only when idle. A standalone row whose folder vanished stays planned at its current placement instead of hiding; a never-managed missing-folder row defers with a count. The hidden manifest entry routes through the same checked hook. Mark the Paseo record archived/closed without invoking native Codex archive on the original thread. Never sweep unrelated Paseo agents.
+
+Archive an obsolete catalog workspace only when no non-archived local agent remains inside it. Preserve mapping revisions so reappearance creates the correct workspace without duplicate identities.
+
+The historical implementation recreated missing original working directories as **empty directories** so old chats remained openable. This did not restore repository contents. During migration or repair, first confirm the original path is still intended and within authorized writable locations; otherwise defer that workspace and report the missing folder. Do not copy unrelated projects or invent repository files.
+
+## Hook repair after updates
+
+The verified package targets are under `settings.cliRoot/node_modules/@getpaseo/server/dist/server/server`:
+
+- `agent/import-sessions.js`: extend `async function importProviderSessionNow(input, cwd, workspaceId) {` with the checked catalog import branch.
+- `session.js`: extend `buildAgentPayload(agent)` to route a `catalogStoredRecord` to `buildStoredAgentPayload`.
+
+The current extension marker is `paseo-codex-catalog-v1`. Inspect both files: a marker alone does not prove the import points to the present bridge or that an update preserved compatible APIs. The installer first validates unique anchors, backs up originals, then changes only those targets. If the layout differs, adapt to the current source; do not blindly restore an old complete package file.
+
+Restart/reconcile the Paseo daemon only after checking affected active turns. A patch in the global CLI package does not take effect if the running daemon still uses the bundled desktop server. `catalog-daemon.mjs` checks the daemon executable against the configured Node executable. Its broad catch paths and first-page agent checks are implementation limits: inspect the actual daemon and paginate all agents when proving idle state for a restart.
+
+## Verification and common failures
+
+| Evidence | Meaning / next step |
+| --- | --- |
+| Fresh `active`, matching generation, all identities placed, duplicates zero | Catalog reconciliation currently passes. |
+| `waiting_for_Desktop` | Connect Desktop to the shared backend; starting the watcher alone does not satisfy this gate. |
+| Stale snapshot or dead worker | Check task state, marker presence, watcher process identity, and current hook installation. |
+| Deferred records | Observe another pass after the affected reply finishes. |
+| `standaloneChats` below the Desktop Recents total | Check `recentsExcluded` (ineligible rows by category) and `standaloneDeferred` (missing folders); only originator-verified top-level Desktop chats with real folders are planned. |
+| Unexpected chat totals | Check project assignments, archive state, pagination, and Desktop local/native migrations. |
+| Multiple workspaces for one project | Check distinct original working directories before treating them as duplicates. |
+| Duplicate agents for one original handle | Check storage lookup, mapping persistence, and lifecycle serialization; preserve history before fixing. |
+| Hook installed but no lazy imports | Confirm the running daemon is using the patched Node package and both payload/import branches match current APIs. |
+
+Counts alone do not prove message coverage. For selected original handles, compare native text hashes against all pages of Paseo's canonical timeline. The existing history helper supports merged text blocks and mapped asynchronous question cards, rejects stale/gapped pagination, and verifies that original history did not change during inspection. Keep hashes and handles private. Report coverage limits if order or multiplicity was not checked.
+
+## Disable or migrate
+
+For an explicitly requested auto-sync disable, verify the scheduled task's action belongs to this bridge, disable that task, then remove only `catalog-enabled.json` at the resolved bridge path. Preserve records, original Codex history, maps, and backups. Shared transport can remain available. A full extension uninstall additionally requires reviewing callers and restoring compatible package code; stopping the watcher alone does not remove its import hook.
+
+On another PC, transfer only reviewed code helpers from the source bridge. Create fresh settings with discovered paths and a fresh local transport credential; exclude runtime settings, `*.private*`, logs, inventories, history, and backups. Replace hardcoded source-machine paths in the helper code. Rebuild catalog mappings from that PC's native project/thread APIs, install compatible lazy-import hooks, then test idempotence with disposable handles before enabling the hidden logon watcher. Never copy old agent or workspace identities to establish a new mapping.

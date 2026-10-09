@@ -5,6 +5,11 @@ description: Save Yousuf's text, images, videos, audio, and links into the narro
 
 # FB Second Brain
 
+## Shared visible/cron login contract (2026-10-03)
+
+The visible managed browser is openclaw2 on CDP 18802. Cron profile openclaw is an attach-only alias of its SAME default context, with task-owned hidden windows. Login in visible openclaw2 applies to Messenger and other sites without cookie/profile copying. The audited wrapper ensures the visible owner is ready, opens one hidden owned Messenger target, and snapshots/types only with its exact target ID; it never focuses or creates another browser profile. Authentication expiry/2FA still requires normal visible recovery. Pending jobs remain untouched until login/PIN preflight succeeds.
+
+
 Extend `memory-routing`; do not replace it. Treat memory as the source of truth and Messenger as an optional second copy for eligible media.
 
 ## Required source
@@ -61,7 +66,7 @@ The runner attempts each job at most once per run. Before Send it waits for stab
 
 1. Check queue status. If empty or another unexpired worker lock exists, return `NO_REPLY` without opening Messenger.
 2. Open one disposable `https://www.facebook.com/messages/` tab in the `openclaw` profile and keep its exact target ID. Run the login helper with `-TargetId`; it no-ops without decrypting when already logged in and reads the Windows-user-bound encrypted login only when a complete login form is visible.
-3. If the login helper returns `two_factor_required`, do not acquire the lock, claim, or fail any job. Return exactly `Messenger login needs 2-step verification. Queue retained; please complete it in the openclaw browser.` If login is missing, unreadable, or unverified, leave the queue untouched and report only a safe generic failure.
+3. If the login helper returns `two_factor_required`, do not acquire the lock, claim, or fail any job. Return exactly `Messenger login needs 2-step verification. Queue retained; please complete it in the visible openclaw2 browser.` If login is missing, unreadable, or unverified, leave the queue untouched and report only a safe generic failure.
 4. If Messenger shows the chat-history restore PIN dialog, run the PIN helper with the same `-TargetId`. The encrypted PIN is not read when no PIN prompt is visible. Never retrieve, print, copy, log, or ask Yousuf for the raw PIN; never use a one-time code or destructive no-restore option.
 5. Acquire the exclusive queue lock with `queue-worker.mjs begin-run`, then repeatedly call `claim-next --browser-profile openclaw`. Each claim rebuilds `post_manifest` from the durable payload. Process exactly one claimed item at a time; never post jobs concurrently.
 6. Require the exact `Write to <target group>` composer, attach the refreshed durable paths, wait for the enabled exact Send control, add only `message_text` when non-empty, and click Send exactly once. Do not use Enter/click fallback chains.

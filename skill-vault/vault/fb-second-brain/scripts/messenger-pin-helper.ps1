@@ -13,13 +13,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-function Focus-BrowserTarget {
+function Assert-BrowserTarget {
   param([string]$Profile)
-  if ([string]::IsNullOrWhiteSpace($TargetId)) { return }
-  & openclaw browser --json --browser-profile $Profile focus $TargetId 2>&1 | Out-Null
-  if ($LASTEXITCODE -ne 0) {
-    throw 'The dedicated Messenger browser tab is unavailable.'
-  }
+  if ([string]::IsNullOrWhiteSpace($TargetId)) { throw 'A dedicated Messenger browser target is required.' }
+  if ($TargetId -notmatch '^[A-Fa-f0-9]{16,64}$') { throw 'A dedicated Messenger browser target is required.' }
 }
 
 function Write-Result {
@@ -29,8 +26,8 @@ function Write-Result {
 
 function Get-BrowserSnapshot {
   param([string]$Profile)
-  Focus-BrowserTarget -Profile $Profile
-  $raw = & openclaw browser --json --browser-profile $Profile snapshot --efficient 2>&1
+  Assert-BrowserTarget -Profile $Profile
+  $raw = & openclaw browser --json --browser-profile $Profile snapshot --efficient --target-id $TargetId 2>&1
   if ($LASTEXITCODE -ne 0) {
     throw "Unable to snapshot the visible browser profile '$Profile'."
   }
@@ -85,6 +82,7 @@ function Read-SecurePin {
     throw 'Messenger chat-history credential store is empty.'
   }
   try {
+    Import-Module (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1') -ErrorAction Stop
     return ConvertTo-SecureString $encrypted
   } catch {
     throw 'Messenger chat-history credential cannot be decrypted in this execution context.'
@@ -125,10 +123,10 @@ if ($Action -eq 'Status') {
 $bstr = [IntPtr]::Zero
 $plainPin = $null
 try {
-  Focus-BrowserTarget -Profile $BrowserProfile
+  Assert-BrowserTarget -Profile $BrowserProfile
   $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePin)
   $plainPin = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
-  & openclaw browser --json --browser-profile $BrowserProfile type $pinRef $plainPin --submit 2>&1 | Out-Null
+  & openclaw browser --json --browser-profile $BrowserProfile type $pinRef $plainPin --target-id $TargetId --submit 2>&1 | Out-Null
   if ($LASTEXITCODE -ne 0) {
     throw 'The visible browser rejected the stored Messenger chat-history credential submission.'
   }

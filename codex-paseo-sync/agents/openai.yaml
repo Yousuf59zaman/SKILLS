@@ -1,0 +1,6 @@
+interface:
+  display_name: "Codex–Paseo Auto Sync"
+  short_description: "Auto-sync projects and bidirectional Codex chats"
+  default_prompt: "Use $codex-paseo-sync to inspect and repair project auto-sync and live chat visibility between Paseo and Codex Desktop while preserving original chats."
+policy:
+  allow_implicit_invocation: true

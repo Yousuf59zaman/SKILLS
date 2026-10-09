@@ -2532,8 +2532,10 @@ function registerIntegrationConfigTests() {
     assert.match(helper, /SecureStringToBSTR/);
     assert.match(helper, /ZeroFreeBSTR/);
     assert.match(helper, /snapshot --efficient/);
-    assert.match(helper, /type \$pinRef \$plainPin --submit/);
-    assert.match(helper, /Focus-BrowserTarget/);
+    assert.match(helper, /type \$pinRef \$plainPin --target-id \$TargetId --submit/);
+    assert.match(helper, /Assert-BrowserTarget/);
+    assert.match(helper, /--target-id \$TargetId/);
+    assert.doesNotMatch(helper, /browser[^\n]+ focus /);
     assert.match(helper, /\[string\]\$TargetId/);
     assert.doesNotMatch(helper, /\b\d{6}\b/);
     assert.ok(helper.indexOf('$pinRef = Find-PinRef') < helper.indexOf('$securePin = Read-SecurePin'));
@@ -2550,7 +2552,9 @@ function registerIntegrationConfigTests() {
     assert.match(helper, /notify_yousuf/);
     assert.match(helper, /snapshot --efficient/);
     assert.match(helper, /Test-AuthenticatedMessenger/);
-    assert.match(helper, /Focus-BrowserTarget/);
+    assert.match(helper, /Assert-BrowserTarget/);
+    assert.match(helper, /--target-id \$TargetId/);
+    assert.doesNotMatch(helper, /browser[^\n]+ focus /);
     assert.match(helper, /\[string\]\$TargetId/);
     assert.ok(helper.indexOf('$before = Get-StableMessengerSnapshot') < helper.indexOf('$credential = Read-SecureCredentialStore'));
     assert.doesNotMatch(helper, /AsPlainText/);

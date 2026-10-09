@@ -24,6 +24,8 @@ function Write-SafeJson {
 
 function Open-MessengerPage {
   $script:failureClass = 'browser_unavailable'
+  & $openclaw browser --browser-profile openclaw2 start | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'Unable to ensure the visible shared browser owner.' }
   & $openclaw browser --browser-profile $BrowserProfile start | Out-Null
   if ($LASTEXITCODE -ne 0) { throw 'Unable to start the cron browser profile.' }
   $raw = & $openclaw browser --json --browser-profile $BrowserProfile open 'https://www.facebook.com/messages/' 2>&1
@@ -35,8 +37,7 @@ function Open-MessengerPage {
     throw 'The cron browser did not return a dedicated Messenger tab identifier.'
   }
   $script:browserTargetId = $candidateTargetId
-  & $openclaw browser --browser-profile $BrowserProfile focus $script:browserTargetId | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw 'Unable to focus the dedicated Messenger tab.' }
+  # The native open call owns a hidden window in the visible browser session.
   Start-Sleep -Seconds 3
 }
 
@@ -56,8 +57,8 @@ function Write-BlockedResult {
   param([string]$FailureClass)
   $finalLine = switch ($FailureClass) {
     'queue_status_unavailable' { 'Messenger queue data could not be verified. Jobs retained; manual review is required before retry.' }
-    'login_unverified' { 'Messenger login could not be verified. Queue retained; please open Messenger in the openclaw browser.' }
-    'pin_unverified' { 'Messenger chat-history restore needs attention. Queue retained; please open Messenger in the openclaw browser.' }
+    'login_unverified' { 'Messenger login could not be verified. Queue retained; please complete login in the visible openclaw2 browser.' }
+    'pin_unverified' { 'Messenger chat-history restore needs attention. Queue retained; please complete login in the visible openclaw2 browser.' }
     'browser_unavailable' { 'Messenger browser is unavailable. Queue retained; the next run will retry safely.' }
     default { 'Messenger queue runner is unavailable. Queue retained; the next run will retry safely.' }
   }
@@ -100,13 +101,15 @@ try {
       ok = $false
       status = 'two_factor_required'
       queue_retained = $true
-      finalLine = 'Messenger login needs 2-step verification. Queue retained; please complete it in the openclaw browser.'
+      finalLine = 'Messenger login needs 2-step verification. Queue retained; please complete it in the visible openclaw2 browser.'
     }
     exit 0
   }
   if ($loginResult.ExitCode -ne 0 -or -not $login -or -not $login.ok) {
     throw 'Messenger login could not be verified safely.'
   }
+
+  if ($Preflight -and (-not $login.already_logged_in -or $login.credential_required)) { throw 'Messenger preflight requires a verified logged-in session.' }
 
   $script:failureClass = 'pin_unverified'
   $pinAction = if ($Preflight) { 'Status' } else { 'Submit' }
@@ -115,6 +118,8 @@ try {
   if ($pinResult.ExitCode -ne 0 -or -not $pin -or -not $pin.ok) {
     throw 'Messenger chat-history PIN could not be verified safely.'
   }
+
+  if ($Preflight -and $pin.needed) { throw 'Messenger preflight requires restored chat history.' }
 
   if ($Preflight) {
     $script:failureClass = 'runner_preflight_failed'
