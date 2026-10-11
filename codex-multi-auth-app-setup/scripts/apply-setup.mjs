@@ -15,10 +15,9 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 
 const args = process.argv.slice(2);
-const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const SCRIPT_DIR = path.dirname(new URL(import.meta.url).pathname.replace(/^\//, ""));
 const SKILL_DIR = path.dirname(SCRIPT_DIR);
 
 function hasFlag(name) { return args.includes(name); }
@@ -278,23 +277,56 @@ ${CAPTURE_CALL}`,
   return { file, changed: APPLY, alreadyPatched: false };
 }
 
+function launcherRevision(text) {
+  const m = /SHARED-CANONICAL-REVISION=(\d+)/.exec(String(text || ""));
+  return m ? parseInt(m[1], 10) : 0;
+}
+const SYNC_FROM_BIN = hasFlag("--sync-from-bin");
+function syncSkillFromBin(binDir) {
+  // Repair path for the no-downgrade rule: copy the ACTIVE bin launchers
+  // back into this skill (with backups), so a stale skill can never
+  // downgrade bin on the next --apply. Honors dry-run convention.
+  const pairs = [["codex-app.ps1", "codex-app.ps1"], ["codex-app.cmd", "codex-app.cmd"], ["codex-stop-all.cmd", "codex-stop-all.cmd"]];
+  for (const [binName, skillName] of pairs) {
+    const from = path.join(binDir, binName);
+    const to = path.join(SKILL_DIR, "scripts", skillName);
+    if (!pathExists(from)) fail(`bin asset missing for skill sync: ${from}`);
+    if (pathExists(to) && normalizeJs(fs.readFileSync(to, "utf8")) === normalizeJs(fs.readFileSync(from, "utf8"))) { info(`skill ${skillName} already matches bin`); continue; }
+    if (!APPLY) { info(`[dry-run] would sync skill ${skillName} from bin`); continue; }
+    const b = `${to}.cma-setup-${timestamp()}.bak`; fs.copyFileSync(to, b);
+    fs.copyFileSync(from, to);
+    info(`synced skill ${skillName} from bin (backup kept)`);
+  }
+}
 function installLauncher(binDir, changedFiles, backups) {
   const ps1Src = path.join(SKILL_DIR, "scripts", "codex-app.ps1");
   const cmdSrc = path.join(SKILL_DIR, "scripts", "codex-app.cmd");
-  if (!pathExists(ps1Src) || !pathExists(cmdSrc)) fail("launcher assets missing in skill scripts/");
+  const stopSrc = path.join(SKILL_DIR, "scripts", "codex-stop-all.cmd");
+  if (!pathExists(ps1Src) || !pathExists(cmdSrc) || !pathExists(stopSrc)) fail("launcher assets missing in skill scripts/");
   const ps1Dst = path.join(binDir, "codex-app.ps1");
   const cmdDst = path.join(binDir, "codex-app.cmd");
+  const stopDst = path.join(binDir, "codex-stop-all.cmd");
   const ps1Changed = !pathExists(ps1Dst) || normalizeJs(fs.readFileSync(ps1Dst, "utf8")) !== normalizeJs(fs.readFileSync(ps1Src, "utf8"));
   const cmdChanged = !pathExists(cmdDst) || normalizeJs(fs.readFileSync(cmdDst, "utf8")) !== normalizeJs(fs.readFileSync(cmdSrc, "utf8"));
-  if (!ps1Changed && !cmdChanged) { info(`codex-app launcher already up-to-date in ${binDir}`); return; }
-  if (!APPLY) { info(`[dry-run] would install codex-app.ps1 + codex-app.cmd to ${binDir}`); return; }
+  const stopChanged = !pathExists(stopDst) || normalizeJs(fs.readFileSync(stopDst, "utf8")) !== normalizeJs(fs.readFileSync(stopSrc, "utf8"));
+  if (!ps1Changed && !cmdChanged && !stopChanged) { info(`codex-app launcher already up-to-date in ${binDir}`); return; }
+  // No-downgrade rule (shared-canonical revision anchor): never copy an
+  // older skill-bundled ps1 over a newer installed one, and never install
+  // over same-revision drift. Repair with --sync-from-bin first.
+  const srcRev = launcherRevision(fs.readFileSync(ps1Src, "utf8"));
+  if (pathExists(ps1Dst)) {
+    const dstRev = launcherRevision(fs.readFileSync(ps1Dst, "utf8"));
+    if (dstRev > srcRev) fail(`refusing to downgrade ${ps1Dst} (installed revision ${dstRev} > skill revision ${srcRev}); sync the skill from bin first`);
+    if (dstRev === srcRev && normalizeJs(fs.readFileSync(ps1Dst, "utf8")) !== normalizeJs(fs.readFileSync(ps1Src, "utf8"))) fail(`refusing to install over same-revision drift in ${ps1Dst}; sync the skill from bin first`);
+  }
+  if (!APPLY) { info(`[dry-run] would install codex-app.ps1 + codex-app.cmd + codex-stop-all.cmd to ${binDir}`); return; }
   if (!pathExists(binDir)) { fs.mkdirSync(binDir, { recursive: true }); info(`created ${binDir}`); }
-  for (const [src, dst] of [[ps1Src, ps1Dst], [cmdSrc, cmdDst]]) {
+  for (const [src, dst] of [[ps1Src, ps1Dst], [cmdSrc, cmdDst], [stopSrc, stopDst]]) {
     if (pathExists(dst)) { const b = `${dst}.cma-setup-${timestamp()}.bak`; fs.copyFileSync(dst, b); backups.push(b); }
     fs.copyFileSync(src, dst);
     changedFiles.push(dst);
   }
-  info(`installed codex-app.ps1 + codex-app.cmd to ${binDir}`);
+  info(`installed codex-app.ps1 + codex-app.cmd + codex-stop-all.cmd to ${binDir}`);
   // Best-effort PATH hint
   const pathHasBin = (process.env.Path || process.env.PATH || "")
     .split(path.delimiter).some((p) => path.resolve(p) === path.resolve(binDir));
@@ -370,6 +402,9 @@ if (VERIFY_ONLY) {
   process.exit(0);
 }
 
+if (SYNC_FROM_BIN) {
+  syncSkillFromBin(binDir);
+}
 if (APPLY) {
   installLauncher(binDir, changedFiles, backups);
   if (patchResult.changed || patchResult.alreadyPatched) {

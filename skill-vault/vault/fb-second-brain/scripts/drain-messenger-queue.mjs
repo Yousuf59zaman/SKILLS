@@ -27,7 +27,7 @@ const requestedTargetId = String(args["target-id"] || "").trim();
 const workspace = WORKSPACE_ROOT;
 const loginHelper = path.join(workspace, "skills", "fb-second-brain", "scripts", "messenger-login-helper.ps1");
 const pinHelper = path.join(workspace, "skills", "fb-second-brain", "scripts", "messenger-pin-helper.ps1");
-const TWO_FACTOR_LINE = "Messenger login needs 2-step verification. Queue retained; please complete it in the openclaw browser.";
+const TWO_FACTOR_LINE = "Messenger login needs 2-step verification. Queue retained; please complete it in the visible openclaw2 browser.";
 
 function emit(value) {
   process.stdout.write(`${JSON.stringify(value)}\n`);
@@ -157,7 +157,7 @@ export async function findPageByTargetId(context, targetId) {
 }
 
 export async function openExactConversation(page, targetGroup) {
-  await page.bringToFront();
+  // Explicit owned target control preserves the hidden task window.
   if (!/facebook\.com\/messages/i.test(page.url())) {
     await page.goto("https://www.facebook.com/messages/", { waitUntil: "domcontentloaded", timeout: 120000 });
     await sleep(2500);
@@ -432,7 +432,7 @@ async function main() {
   browserConnection = browser;
   let page = await findPageByTargetId(context, requestedTargetId);
   if (!page) throw new Error("dedicated_messenger_tab_unavailable");
-  await page.bringToFront();
+  // Explicit owned target control preserves the hidden task window.
   await page.goto("https://www.facebook.com/messages/", { waitUntil: "domcontentloaded", timeout: 120000 });
   await page.waitForTimeout(2000);
 

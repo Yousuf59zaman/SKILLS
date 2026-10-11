@@ -1,0 +1,4 @@
+interface:
+  display_name: "Desktop Commander Autostart"
+  short_description: "Set up and verify visible Windows remote-agent startup"
+  default_prompt: "Use $desktop-commander-autostart to configure or verify Desktop Commander Remote at Windows sign-in, without interrupting the current connection."

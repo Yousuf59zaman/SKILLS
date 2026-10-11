@@ -1,0 +1,606 @@
+#!/usr/bin/env pwsh
+# codex-app.ps1 — Manual launcher for the NEW ChatGPT desktop app (the one
+# formerly branded "Codex") and the shared Paseo backend.
+#
+# Target app: Microsoft Store MSIX package `OpenAI.Codex` -> ChatGPT.exe
+#             AppUserModelID: OpenAI.Codex_<pub>!App
+#             (resolved dynamically below so app updates don't break this)
+#
+# NOT affected: "ChatGPT Classic" (OpenAI.ChatGPT-Desktop / ChatGPT Classic.exe)
+# is a different, older app and is intentionally never touched here.
+#
+# MANUAL-FORCE DEFAULT (user-authorized): invoking this launcher
+# intentionally interrupts running shared Codex replies — no idle waiting,
+# no refusal for busy state. Running replies are cancelled via a bounded
+# turn/interrupt phase (one absolute ~10s budget over the authenticated
+# gateway check channel, never replayed or resent) and are NEVER replayed
+# or resent. Unattended tasks (catalog/history/question) stay conservative
+# idle-only and never call this force path.
+#
+# ORDERING (shared mode): the old shared native still runs on the OLD auth
+# and can cache/rotate it, so the exact owned supervisor+native quiesce
+# (Desktop family exit, then generation-checked backend stop, no respawn)
+# ALWAYS happens BEFORE any account switch. The backend then boots once on
+# the new auth. A failed switch reboots the old/current runtime and
+# rethrows the original error — never a silent account change.
+#
+# Testability contract (do not weaken): every external effect flows through
+# the $Seams table (explicit parameter, never scope magic), so isolated
+# fixtures drive the REAL control flow with fakes. Production builds the
+# default table once per run.
+#
+# Usage:
+#   codex-app             # FORCE: interrupt replies, restart Desktop + backend
+#   codex-app 2           # FORCE: stop old runtime, switch to account 2, boot
+#   codex-app switch 2    # same as above (explicit syntax)
+#   codex-app -Account 2  # same as above (legacy syntax)
+#   codex-app -NoStop     # just open/ensure (never stops anything)
+#   codex-app -WaitSeconds 30  # GUARDED caller's choice: wait up to 30s idle,
+#                              # refuse on busy timeout instead of forcing
+#                              # (bounded 0-600 seconds, rejected pre-mutation)
+#
+# Why this exists:
+#   * `codex app` (the @openai/codex CLI, even 0.144.1) only detects the non-Store
+#     "Codex" installer and prints "Codex Desktop not found". Your app is the
+#     Store MSIX package `OpenAI.Codex`, invisible to that detector, so we launch
+#     by AppUserModelID instead.
+#   * `Get-Process Codex,codex` only stops the `codex.exe` helper — it leaves
+#     `ChatGPT.exe` (the real new desktop app) running with the OLD account token
+#     cached in memory, so a switch had no visible effect. We stop ChatGPT.exe.
+
+[CmdletBinding()]
+param(
+    [Parameter(Position=0)]$Target = $null,
+    [Parameter(Position=1)][int]$TargetAccount = 0,
+    [int]$Account = 0,
+    [switch]$NoStop,
+    [int]$WaitSeconds = -1,
+    [string]$MutexName = 'Local\PaseoCodexSharedAccountRestart',
+    [string]$BridgeDirOverride = '',
+    [string]$BackendStartMutexName = 'Local\PaseoCodexSharedBackendStart',
+    [int]$BackendStartWaitMs = 30000
+)
+
+$ErrorActionPreference = 'Stop'
+
+# Resolve what the user asked into a plan BEFORE any mutation (auth,
+# processes, or backend). Returns @{Mode; Account} with Mode in
+# 'Open' (NoStop open-only), 'Force' (manual default), 'Guarded'
+# (explicit -WaitSeconds). Throws on anything ambiguous or invalid.
+# NOTE: the local selected-account variable is deliberately NOT named
+# $account/$Account (PowerShell variables are case-insensitive, so a
+# lowercase twin would silently clobber the parameter).
+function Resolve-CodexAppPlan {
+    param($Target,[int]$TargetAccount,[int]$Account,[switch]$NoStop,[int]$WaitSeconds)
+    if($WaitSeconds -lt -1 -or $WaitSeconds -gt 600){throw 'Invalid -WaitSeconds (use -1 for manual force, or 0 to 600 seconds for a guarded idle wait).'}
+    $selectedAccount=$null
+    $targetText=if($null -eq $Target){''}else{[string]$Target}
+    $isSwitch=($targetText -ne '' -and $targetText.ToLowerInvariant() -eq 'switch')
+    if($isSwitch){
+        if($TargetAccount -le 0){throw 'Usage: codex-app switch <account number starting at 1>.'}
+        if($TargetAccount -gt 2147483647){throw 'Invalid account number.'}
+        $selectedAccount=$TargetAccount
+    }elseif($targetText -ne ''){
+        $parsed=0
+        if(-not [int]::TryParse($targetText,[ref]$parsed)){throw "Invalid codex-app target '$targetText' (use an account number or 'switch <N>')."}
+        if($parsed -le 0 -or $parsed -gt 2147483647){throw 'Invalid account number (use 1 and up).'}
+        $selectedAccount=$parsed
+    }
+    if($Account -ne 0){
+        if($Account -le 0 -or $Account -gt 2147483647){throw 'Invalid -Account number (use 1 and up).'}
+        if($null -ne $selectedAccount -and $selectedAccount -ne $Account){throw 'Conflicting account numbers; specify one target only.'}
+        $selectedAccount=$Account
+    }
+    if($TargetAccount -ne 0 -and -not $isSwitch){throw "Unexpected second positional argument; use 'codex-app switch <N>'."}
+    $switchRequested=$null -ne $selectedAccount
+    if($NoStop -and $switchRequested){throw 'Use codex-app <account number> for an account switch; -NoStop only opens the frontend.'}
+    if($NoStop){return @{Mode='Open';Account=$null}}
+    if($WaitSeconds -ge 0){return @{Mode='Guarded';Account=$selectedAccount}}
+    return @{Mode='Force';Account=$selectedAccount}
+}
+
+# Production seams: thin wrappers over the real environment. Fixtures pass
+# their own table; nothing else in this file touches the outside world.
+function New-ProductionSeams {
+    param($BridgeDir)
+    # Closure-safety (proven by fixture on both engines): GetNewClosure
+    # seams must not call sibling functions BY NAME — under &-invocation the
+    # definition scope is invisible to the closure. Capture the body first.
+    $boundedFn=${function:Invoke-BoundedNodeChild}
+    return @{
+        ReadBridgeJson = { param($Name) Get-Content -LiteralPath (Join-Path $BridgeDir $Name) -Raw | ConvertFrom-Json }.GetNewClosure()
+        RunNode = { param($NodeExe,$Script,$Arguments) & $boundedFn $NodeExe $Script $Arguments }.GetNewClosure()
+        RunMultiAuthSwitch = { param($Index)
+            # Bounded switch (default 120s, override PASEO_CODEXAPP_SWITCH_TIMEOUT_MS
+            # for fixtures): an auth switch must never hang a manual invocation
+            # forever. Exact executable resolution (npm shim -> node + JS entry,
+            # no PATH guessing). Fixture isolation: PASEO_CODEXAPP_NODE_EXE /
+            # PASEO_CODEXAPP_SWITCH_JS override resolution, but ONLY to a node
+            # binary plus a JS entry under the Temp root (SENTINEL); if either
+            # override is present yet invalid, this throws fail-closed and
+            # NEVER falls back to the real auth CLI. On timeout the exact
+            # owned child is deliberately NOT killed — killing mid-switch
+            # could corrupt auth state. A durable exact-identity fence (pid +
+            # process start ticks + executable/command proof + nonce) is
+            # published BEFORE the wait can escape scope, so no later
+            # launcher/healer may boot or switch beneath that live mutator;
+            # expiry reports 999 (uncertain, verify before retrying). A clean
+            # exit clears exactly its own nonce fence. Self-contained: only
+            # the $BridgeDir parameter and cmdlets (closure-safe).
+            $boundMs=120000
+            try{
+                $envMs=[int]$env:PASEO_CODEXAPP_SWITCH_TIMEOUT_MS
+                if($envMs -gt 0){$boundMs=$envMs}
+            }catch{}
+            $fenceFile=Join-Path $BridgeDir 'account-switch-fence.private.json'
+            $npmRoot=Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'npm'
+            $nodeExe=$env:PASEO_CODEXAPP_NODE_EXE
+            $jsEntry=$env:PASEO_CODEXAPP_SWITCH_JS
+            $fixtureMode=(-not [string]::IsNullOrWhiteSpace($nodeExe)) -or (-not [string]::IsNullOrWhiteSpace($jsEntry))
+            if([string]::IsNullOrWhiteSpace($nodeExe)){$nodeExe=Join-Path $npmRoot 'node.exe'}
+            if([string]::IsNullOrWhiteSpace($jsEntry)){$jsEntry=Join-Path $npmRoot 'node_modules\codex-multi-auth\scripts\codex-multi-auth.js'}
+            if(-not (Test-Path -LiteralPath $nodeExe -PathType Leaf)){throw 'Node executable for codex-multi-auth not found.'}
+            if(-not (Test-Path -LiteralPath $jsEntry -PathType Leaf)){throw 'codex-multi-auth JS entry not found.'}
+            if($fixtureMode){
+                # Strict fixture-only override: the JS entry must resolve
+                # inside the Temp root, or this fails closed (never real auth).
+                try{
+                    $jsFull=[IO.Path]::GetFullPath($jsEntry)
+                    $tmpRoot=[IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+                    if(-not $jsFull.StartsWith($tmpRoot,[StringComparison]::OrdinalIgnoreCase)){throw 'Fixture switch entry is outside the Temp root; refusing.'}
+                }catch{
+                    throw 'Fixture switch resolution invalid; refusing to run any switch.'
+                }
+            }
+            $nonce=([Guid]::NewGuid().ToString('N'))
+            # Pre-mutation intent: publish proven durable authority BEFORE the
+            # child exists, so no auth mutation can escape fenced scope. The
+            # intent carries the OWNER creation + descriptor (spawner pid +
+            # spawner start ticks + human descriptor), so an operator can
+            # always verify settlement and recover — no permanent
+            # unverifiable intent without recovery evidence.
+            $ownerPid=$PID
+            $ownerTicks=$null;$ownerDesc=("codex-app switch $Index")
+            try{$ownerTicks=[int64][Diagnostics.Process]::GetCurrentProcess().StartTime.ToUniversalTime().Ticks}catch{$ownerTicks=$null}
+            try{
+                if($null -eq $ownerTicks){throw 'owner creation unprovable'}
+                [ordered]@{version=1;phase='intent';nonce=$nonce;account=$Index;nodeExe=$nodeExe;jsEntry=$jsEntry;args=@('switch',"$Index");ownerPid=$ownerPid;ownerStartTicks=$ownerTicks;ownerDesc=$ownerDesc;at=[DateTimeOffset]::UtcNow.ToString('o')}|ConvertTo-Json -Depth 4|Set-Content -LiteralPath ($fenceFile+'.tmp') -Encoding utf8
+                Move-Item -LiteralPath ($fenceFile+'.tmp') -Destination $fenceFile -Force
+                $intent=Get-Content -LiteralPath $fenceFile -Raw -ErrorAction Stop|ConvertFrom-Json
+                if($intent.nonce -ne $nonce -or $intent.phase -ne 'intent'){throw 'intent verify mismatch'}
+            }catch{
+                throw 'Switch intent fence could not be published and proven; refusing to start any switch.'
+            }
+            try{
+                $sw=Start-Process -FilePath $nodeExe -ArgumentList @($jsEntry,'switch',"$Index") -WindowStyle Hidden -PassThru
+            }catch{
+                # Spawn failed: no child exists, so our own nonce intent is
+                # safely settled (nonce-checked, never a foreign fence) and
+                # the switch refuses with settlement evidence. The live child
+                # is NEVER killed mid-mutation — here there is no child.
+                try{
+                    $cur=Get-Content -LiteralPath $fenceFile -Raw -ErrorAction Stop|ConvertFrom-Json
+                    if($cur.nonce -eq $nonce){
+                        [ordered]@{version=1;phase='settled-spawn-failed';nonce=$nonce;account=$Index;ownerPid=$ownerPid;ownerStartTicks=$ownerTicks;ownerDesc=$ownerDesc;error=[string]$_.Exception.Message;at=[DateTimeOffset]::UtcNow.ToString('o')}|ConvertTo-Json -Depth 4|Set-Content -LiteralPath ($fenceFile+'.tmp') -Encoding utf8
+                        Move-Item -LiteralPath ($fenceFile+'.tmp') -Destination $fenceFile -Force
+                        Remove-Item -LiteralPath $fenceFile -Force -ErrorAction Stop
+                    }
+                }catch{}
+                throw 'codex-multi-auth switch could not be started; the intent fence was settled and no auth was mutated.'
+            }
+            try{
+                # Bind the exact child identity immediately: pid + start ticks +
+                # executable. The intent fence above already guards scope; this
+                # upgrade is retried briefly for transient IO. If it cannot be
+                # proven, the intent fence STAYS (blocking all future
+                # switch/boot as uncertain, carrying owner creation +
+                # descriptor for operator recovery) and the switch refuses —
+                # the live child is NEVER killed as a fence-write fallback.
+                $boundIdentity=$false
+                for($bindTry=0;$bindTry -lt 3 -and -not $boundIdentity;$bindTry++){
+                    try{
+                        [ordered]@{version=1;phase='active';pid=$sw.Id;startTime=$sw.StartTime.ToString('o');startTicks=$sw.StartTime.ToUniversalTime().Ticks;nodeExe=$nodeExe;jsEntry=$jsEntry;args=@('switch',"$Index");account=$Index;nonce=$nonce;ownerPid=$ownerPid;ownerStartTicks=$ownerTicks;ownerDesc=$ownerDesc;at=[DateTimeOffset]::UtcNow.ToString('o')}|ConvertTo-Json -Depth 4|Set-Content -LiteralPath ($fenceFile+'.tmp') -Encoding utf8
+                        Move-Item -LiteralPath ($fenceFile+'.tmp') -Destination $fenceFile -Force
+                        $check=Get-Content -LiteralPath $fenceFile -Raw -ErrorAction Stop|ConvertFrom-Json
+                        if($check.nonce -ne $nonce){throw 'fence verify mismatch'}
+                        $boundIdentity=$true
+                    }catch{
+                        Start-Sleep -Milliseconds 500
+                    }
+                }
+                if(-not $boundIdentity){
+                    throw 'Switch child identity fence could not be proven; the pre-mutation intent fence remains and blocks every future switch/boot until an operator verifies settlement and clears it.'
+                }
+                if($sw.WaitForExit($boundMs)){
+                    $code=$sw.ExitCode
+                    try{
+                        $cur=Get-Content -LiteralPath $fenceFile -Raw -ErrorAction Stop|ConvertFrom-Json
+                        if($cur.nonce -eq $nonce){Remove-Item -LiteralPath $fenceFile -Force -ErrorAction Stop}
+                    }catch{}
+                    return $code
+                }
+                try{
+                    if($sw.HasExited){
+                        $code=$sw.ExitCode
+                        try{
+                            $cur=Get-Content -LiteralPath $fenceFile -Raw -ErrorAction Stop|ConvertFrom-Json
+                            if($cur.nonce -eq $nonce){Remove-Item -LiteralPath $fenceFile -Force -ErrorAction Stop}
+                        }catch{}
+                        return $code
+                    }
+                }catch{}
+                # Still running past the bound: the proven fence stays (it
+                # was verified above); report uncertain. Consulted before
+                # every future switch/boot until that exact child settles.
+                return 999
+            }finally{
+                try{$sw.Dispose()}catch{}
+            }
+        }.GetNewClosure()
+        ListProcesses = { Get-CimInstance Win32_Process }.GetNewClosure()
+        GetProcessById = { param($Id) Get-CimInstance Win32_Process -Filter ('ProcessId='+[int]$Id) }.GetNewClosure()
+        StopProc = { param($Id) Stop-Process -Id $Id -Force -ErrorAction SilentlyContinue }.GetNewClosure()
+        StartProc = { param($Path) Start-Process $Path }.GetNewClosure()
+        SleepMs = { param($Ms) Start-Sleep -Milliseconds $Ms }.GetNewClosure()
+        SleepSec = { param($Sec) Start-Sleep -Seconds $Sec }.GetNewClosure()
+        RestStatus = { Invoke-RestMethod -Uri 'http://127.0.0.1:19458/status' -TimeoutSec 3 }.GetNewClosure()
+        GetAppx = { param($Name) Get-AppxPackage -Name $Name -ErrorAction SilentlyContinue | Sort-Object Version -Descending | Select-Object -First 1 }.GetNewClosure()
+        EnsureBackend = { & (Join-Path $BridgeDir 'Ensure-Backend.ps1') }.GetNewClosure()
+        EnsureBackendRecoverFailed = { & (Join-Path $BridgeDir 'Ensure-Backend.ps1') -RecoverFailed }.GetNewClosure()
+        OpenSharedApps = { & (Join-Path $BridgeDir 'Open-Shared-Apps.ps1') }.GetNewClosure()
+        RestartIdleBackend = { & (Join-Path $BridgeDir 'Restart-Idle-Backend.ps1') }.GetNewClosure()
+        StopBackendIdle = { param($Dir,$Settings) . (Join-Path $Dir 'Backend-Control.ps1'); Stop-LegacySharedSupervisor -BridgeDir $Dir -Settings $Settings }.GetNewClosure()
+        StopBackendForced = { param($Dir,$Settings) . (Join-Path $Dir 'Backend-Control.ps1'); Stop-LegacySharedSupervisor -BridgeDir $Dir -Settings $Settings -ForceManual }.GetNewClosure()
+    }
+}
+
+# Bounded child execution for node helpers (production cancel path and
+# guarded idle checks). The old `&` form waited forever on a hung child;
+# this form bounds the whole call (default 12s: 10s helper budget plus a
+# small cleanup margin) with async stdout/stderr drain, and on expiry
+# terminates ONLY the exact child handle created here — never a process
+# tree, never by process name. Returns @{code=[int]; output=[string]}: the
+# helper's real exit/output, or code 2 with a synthetic soft report so
+# manual force continues its owned quiesce instead of hanging.
+function Quote-NodeArgument {
+    param([string]$Text)
+    if ($Text.Length -eq 0 -or $Text.Contains(' ') -or $Text.Contains("`t") -or $Text.Contains('"')) {
+        $escaped = ($Text -replace '(\\*)"', '$1$1\"') -replace '(\\+)$', '$1$1'
+        return '"' + $escaped + '"'
+    }
+    return $Text
+}
+
+function Invoke-BoundedNodeChild {
+    param($NodeExe,$Script,$Arguments,[int]$TimeoutMs = 12000)
+    $argList = @([string]$Script) + @($Arguments | ForEach-Object { [string]$_ })
+    $quoted = @($argList | ForEach-Object { Quote-NodeArgument $_ }) -join ' '
+    $psi = [Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName = [string]$NodeExe
+    $psi.Arguments = $quoted
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $proc = [Diagnostics.Process]::new()
+    $proc.StartInfo = $psi
+    try {
+        # No PowerShell scriptblock event handlers here: add_OutputDataReceived
+        # callbacks run on .NET threadpool threads with no runspace under
+        # PS5.1/7 (throws 'no Runspace available' or deadlocks while the
+        # runspace blocks in WaitForExit). Async ReadToEndAsync tasks drain
+        # the pipes without a runspace and are reaped with bounded waits.
+        try { [void]$proc.Start() } catch {
+            return @{code = 2; output = '{"interrupted":0,"alreadyIdle":0,"stillRunning":0,"unknown":0,"soft":"cancel-child-spawn-failed"}'}
+        }
+        $outTask = $proc.StandardOutput.ReadToEndAsync()
+        $errTask = $proc.StandardError.ReadToEndAsync()
+        if (-not $proc.WaitForExit($TimeoutMs)) {
+            try { if (-not $proc.HasExited) { $proc.Kill() } } catch {}
+            try { [void]$proc.WaitForExit(5000) } catch {}
+            return @{code = 2; output = '{"interrupted":0,"alreadyIdle":0,"stillRunning":0,"unknown":0,"soft":"cancel-child-timeout"}'}
+        }
+        $output = ''
+        try { if ($outTask.Wait(5000)) { $output = $outTask.Result } } catch {}
+        try { if ($errTask.Wait(2000)) { $output += "`n" + $errTask.Result } } catch {}
+        if ($output.Length -gt 8192) { $output = $output.Substring(0, 8192) }
+        return @{code = [int]$proc.ExitCode; output = $output}
+    } finally {
+        try { $proc.Dispose() } catch {}
+    }
+}
+
+# Quiescent guard: holds the REAL shared backend-start mutex across the
+# exact stop+switch interval so no logon KeepAlive or parallel Ensure/Open
+# can boot the OLD auth between our stop and our switch. Released (finally,
+# idempotent) BEFORE any child Ensure/Open runs: those are separate
+# processes and would deadlock against a held mutex. Same-thread re-entry
+# is safe (.NET mutexes are reentrant); concurrent NoStop/startup calls
+# serialize behind this hold via their own Ensure wait.
+function Enter-BackendStartGuard {
+    param([string]$MutexName,[int]$WaitMs)
+    $guard = [Threading.Mutex]::new($false, $MutexName)
+    $acquired = $false
+    try { $acquired = $guard.WaitOne($WaitMs) } catch [Threading.AbandonedMutexException] { $acquired = $true }
+    if (-not $acquired) {
+        $guard.Dispose()
+        throw 'Shared backend startup is busy (another installer holds it). Retry after it finishes; nothing was stopped.'
+    }
+    return @{Mutex = $guard; Released = $false}
+}
+
+function Exit-BackendStartGuard {
+    param($Guard)
+    if ($null -eq $Guard -or $Guard.Released) { return }
+    $Guard.Released = $true
+    try { $Guard.Mutex.ReleaseMutex() } catch {}
+    try { $Guard.Mutex.Dispose() } catch {}
+}
+
+function Resolve-ChatGptDesktopAumid {
+    param($Seams)
+    $pkg = & $Seams.GetAppx 'OpenAI.Codex'
+    if (-not $pkg) {
+        throw "New ChatGPT desktop app (MSIX package 'OpenAI.Codex') not found. Install it from the Microsoft Store."
+    }
+    return "$($pkg.PackageFamilyName)!App"
+}
+
+function Wait-SharedRepliesIdle {
+    param($Settings,$Seconds,$Seams)
+    $deadline=[DateTime]::UtcNow.AddSeconds($Seconds)
+    $announced=$false
+    do{
+        $run=& $Seams.RunNode $Settings.node (Join-Path $Settings.bridgeDir 'check-account-idle.mjs') @()
+        $code=$run.code
+        if($code -eq 0){Write-Host 'All shared Codex chats are idle.';return}
+        if($code -ne 2){throw 'Shared chat status could not be verified. Account switching and Desktop shutdown were deferred.'}
+        if([DateTime]::UtcNow -ge $deadline){throw 'A shared reply is still running. Retry after it finishes. Account switching and Desktop shutdown were deferred.'}
+        if(-not $announced){Write-Host ('A shared reply is running; waiting up to '+$Seconds+' seconds before switching or restarting.');$announced=$true}
+        & $Seams.SleepSec 3
+    }while($true)
+}
+
+# Bounded manual-force interrupt of running shared replies. Prints plain
+# aggregate counts, never replays anything. Returns silently on success or
+# best-effort partial (exit 2: some turns unverified — the caller proceeds
+# to the exact owned quiesce with notice, which is the authorized force
+# behavior); throws only when the helper itself refuses (exit 1:
+# unreachable/foreign/stale), in which case the caller must abort instead
+# of forcing blindly.
+function Invoke-ForceInterrupt {
+    param($Settings,$Seams)
+    $run=& $Seams.RunNode $Settings.node (Join-Path $Settings.bridgeDir 'interrupt-shared-turns.mjs') @()
+    if($run.code -eq 1){throw 'Running replies could not be interrupted safely (backend unreachable, foreign, or changed); nothing was stopped.'}
+    $report=$null
+    try{$report=($run.output|Out-String|ConvertFrom-Json)}catch{}
+    $interrupted=0;$already=0;$still=0;$soft=''
+    if($report){
+        if($report.interrupted -is [int]){$interrupted=$report.interrupted}
+        if($report.alreadyIdle -is [int]){$already=$report.alreadyIdle}
+        if($report.stillRunning -is [int]){$still=$report.stillRunning}
+        if($report.soft -is [string]){$soft=$report.soft}
+    }
+    if(($interrupted+$already) -gt 0){Write-Host ("Interrupted $interrupted running shared Codex replies ($already already idle) by manual force; nothing will be replayed.")}
+    if($still -gt 0){Write-Host ("$still replies did not settle in the cancel bound; stopping their runtime now by manual force (no replay).")}
+    if($soft -ne ''){Write-Host ("Cancel phase incomplete ($soft); stopping the owned runtime now by manual force (no replay).")}
+}
+
+function Stop-CodexDesktopFamily {
+    param($Seams)
+    Write-Host "Stopping the installed Codex Desktop ..." -ForegroundColor Cyan
+    # Scope shutdown to this MSIX application's process family. Never kill
+    # unrelated CLI sessions or the shared native backend by process name.
+    for($stopAttempt=0;$stopAttempt -lt 40;$stopAttempt++){
+    $inventory=@(& $Seams.ListProcesses)
+    $appProcesses=@($inventory|Where-Object {$_.Name -in @('ChatGPT.exe','Codex.exe') -and $_.ExecutablePath -match '\\WindowsApps\\OpenAI\.Codex_[^\\]+\\app\\(ChatGPT|Codex)\.exe$'})
+    if(-not $appProcesses.Count){break}
+    $desktopParents=[Collections.Generic.HashSet[int]]::new()
+    foreach($appProcess in $appProcesses|Where-Object {$_.CommandLine -notmatch '--type='}){[void]$desktopParents.Add([int]$appProcess.ProcessId)}
+    $nativeChildren=@($inventory|Where-Object {$_.Name -eq 'codex.exe' -and $desktopParents.Contains([int]$_.ParentProcessId) -and $_.CommandLine -match 'app-server' -and $_.CommandLine -notmatch '19457'})
+    foreach($candidate in @($nativeChildren)+@($appProcesses)){
+        $current=& $Seams.GetProcessById ([int]$candidate.ProcessId)
+        if($current -and $current.ExecutablePath -eq $candidate.ExecutablePath -and $current.CreationDate -eq $candidate.CreationDate){& $Seams.StopProc ([int]$current.ProcessId)}
+    }
+    & $Seams.SleepMs 250
+    }
+    $remaining=@(& $Seams.ListProcesses|Where-Object {$_.Name -in @('ChatGPT.exe','Codex.exe') -and $_.ExecutablePath -match '\\WindowsApps\\OpenAI\.Codex_[^\\]+\\app\\(ChatGPT|Codex)\.exe$'})
+    if($remaining.Count){throw 'Desktop did not fully exit within 10 seconds. The shared backend was preserved.'}
+}
+
+# Exact-identity switch fence consult: delegates to the canonical proof in
+# Backend-Control.ps1 (single source shared with supervisor, pulse, and
+# rollouts). The control file is resolved from the given bridge dir, so
+# fixture launcher copies without it fail closed to 'unknown' (block) rather
+# than running a weaker local proof. Direct call only.
+function Test-SwitchFence {
+    param([string]$BridgeDir)
+    try{
+        $ctl=Join-Path $BridgeDir 'Backend-Control.ps1'
+        if(-not (Test-Path -LiteralPath $ctl -PathType Leaf)){return 'unknown'}
+        . $ctl
+        return Test-SwitchAuthFence -BridgeDir $BridgeDir
+    }catch{return 'unknown'}
+}
+function Switch-CodexAuth {
+    param($Index,$Seams)
+    Write-Host "Switching codex-multi-auth to account $Index ..." -ForegroundColor Cyan
+    $code=& $Seams.RunMultiAuthSwitch $Index
+    if ($code -eq 999) { throw "codex-multi-auth switch $Index did not complete within 120s; left running (never killed mid-switch). Verify its state before retrying." }
+    if ($code -ne 0) { throw "codex-multi-auth switch $Index failed (exit $code)." }
+}
+
+function Invoke-CodexApp {
+    param($Target,[int]$TargetAccount,[int]$Account,[switch]$NoStop,[int]$WaitSeconds,$MutexName,$BridgeDirOverride,$Seams,$BackendStartMutexName,$BackendStartWaitMs)
+    if($null -eq $BackendStartMutexName -or $BackendStartMutexName -eq ''){$BackendStartMutexName='Local\PaseoCodexSharedBackendStart'}
+    if($null -eq $BackendStartWaitMs){$BackendStartWaitMs=30000}
+    $plan=Resolve-CodexAppPlan -Target $Target -TargetAccount $TargetAccount -Account $Account -NoStop:$NoStop -WaitSeconds $WaitSeconds
+    $bridgeDir=if($BridgeDirOverride -ne ''){$BridgeDirOverride}else{(Join-Path $env:USERPROFILE '.paseo\codex-shared-bridge')}
+    if($null -eq $Seams){$Seams=New-ProductionSeams $bridgeDir}
+    $sharedMode=Test-Path -LiteralPath (Join-Path $bridgeDir 'routing-enabled.json')
+    $restartGuard=[Threading.Mutex]::new($false,$MutexName)
+    # Bounded healthy contention: a first instant probe fails fast when truly
+    # idle; when another operation (manual codex-app, rollout critical
+    # section) holds the lock, wait boundedly (30s in 500ms slices) for it to
+    # finish instead of erroring at once. Never steals a live lock, never
+    # kills a holder: expiry reports which class of holder is likely (a live
+    # codex-app/rollout process vs unknown) with a retry action. The lock is
+    # always released in the outer finally below.
+    $acquired=$false
+    try{$acquired=$restartGuard.WaitOne(0)}catch [Threading.AbandonedMutexException]{$acquired=$true}
+    if(-not $acquired){
+        # Fixture override only (default 30s): PASEO_CODEXAPP_LOCKWAIT_SEC.
+        $lockWaitSec=30
+        try{
+            $envLock=[int]$env:PASEO_CODEXAPP_LOCKWAIT_SEC
+            if($envLock -gt 0){$lockWaitSec=$envLock}
+        }catch{}
+        $waitUntil=[DateTime]::UtcNow.AddSeconds($lockWaitSec)
+        while(-not $acquired -and [DateTime]::UtcNow -lt $waitUntil){
+            & $Seams.SleepMs 500
+            try{$acquired=$restartGuard.WaitOne(0)}catch [Threading.AbandonedMutexException]{$acquired=$true}
+        }
+    }
+    if(-not $acquired){
+        $hint='unknown holder'
+        try{
+            $cands=@(& $Seams.ListProcesses|Where-Object {$_.CommandLine -like '*codex-app.ps1*' -or $_.CommandLine -like '*Update-SendSync-WhenIdle.ps1*' -or $_.CommandLine -like '*Update-QuestionSync-WhenIdle.ps1*'})
+            if($cands.Count){$hint='another codex-app or rollout operation still running'}
+        }catch{}
+        $restartGuard.Dispose()
+        throw "Another codex-app operation is already running ($hint). Wait for it to finish, then retry; nothing was stopped."
+    }
+    try{
+    # A live prior switch mutator — or an UNVERIFIABLE fence — blocks every
+    # new operation: booting or switching beneath it could reload the wrong
+    # profile or overlap writes. Only proven-clear/proven-dead proceeds.
+    $fenceState=Test-SwitchFence $bridgeDir
+    if($fenceState -eq 'live'){throw 'A previous account switch is still running; refusing to overlap it. Wait for it to settle, then retry; nothing was stopped.'}
+    if($fenceState -eq 'unknown'){throw 'A previous account switch cannot be verified settled; refusing to proceed blind. Inspect local diagnostics, then retry; nothing was stopped.'}
+    if($sharedMode){
+        $sharedSettings=& $Seams.ReadBridgeJson 'settings.json'
+        $sharedSettings|Add-Member -NotePropertyName 'bridgeDir' -NotePropertyValue $bridgeDir -Force
+        if($plan.Mode -eq 'Force'){
+            # Recover a known failed owned backend within bounds so manual
+            # force also heals a parked backend. An intentional command
+            # restart never consumes crash strikes: the budget lives in the
+            # replaced supervisor and resets on boot.
+            & $Seams.EnsureBackendRecoverFailed
+        }else{
+            & $Seams.EnsureBackend
+        }
+        if($plan.Mode -eq 'Open'){
+            & $Seams.OpenSharedApps
+            Write-Host 'Codex Desktop is connected to the shared Paseo backend.' -ForegroundColor Green
+            return
+        }
+        if($plan.Mode -eq 'Guarded'){
+            Wait-SharedRepliesIdle $sharedSettings $WaitSeconds $Seams
+        }else{
+            Invoke-ForceInterrupt $sharedSettings $Seams
+        }
+    }elseif($plan.Mode -eq 'Guarded'){
+        # No shared routing: there is nothing shared to wait on (legacy
+        # callers passing -WaitSeconds here keep prior behavior).
+    }
+    if (-not $NoStop) {
+        Stop-CodexDesktopFamily $Seams
+    }
+    if($sharedMode){
+        if($plan.Mode -eq 'Guarded'){
+            if($null -ne $plan.Account){
+                # Idle-verified stop BEFORE the switch: the backend must
+                # never reboot on the old auth. The idle proof from the
+                # guarded wait above keeps this conservative. The shared
+                # backend-start mutex is held across stop+switch so no
+                # KeepAlive/startup Ensure can boot the old auth in
+                # between; it is released before any child Ensure/Open.
+                $guardedGuard = Enter-BackendStartGuard -MutexName $BackendStartMutexName -WaitMs $BackendStartWaitMs
+                try{
+                    try{
+                        & $Seams.StopBackendIdle $bridgeDir $sharedSettings
+                    }catch{
+                        $idleStopError=$_
+                        Exit-BackendStartGuard -Guard $guardedGuard
+                        try{ & $Seams.EnsureBackend; & $Seams.OpenSharedApps }catch{}
+                        throw $idleStopError
+                    }
+                    try{
+                        Switch-CodexAuth $plan.Account $Seams
+                    }catch{
+                        $switchError=$_
+                        Exit-BackendStartGuard -Guard $guardedGuard
+                        try{ & $Seams.EnsureBackend; & $Seams.OpenSharedApps }catch{}
+                        throw $switchError
+                    }
+                }finally{
+                    Exit-BackendStartGuard -Guard $guardedGuard
+                }
+                & $Seams.EnsureBackend
+            }else{
+                & $Seams.RestartIdleBackend
+            }
+        }else{
+            # Force: the old shared native is still on the old auth and can
+            # cache/rotate it, so the exact owned supervisor+native quiesce
+            # (no respawn) happens BEFORE any auth switch — and the backend
+            # boots exactly ONCE afterwards. Booting before the switch would
+            # reload the old profile, and the post-switch boot would then
+            # see ready and change nothing: stop OLD backend, switch (if
+            # requested), Ensure ONCE, open. No-account restarts Ensure
+            # once as well. Stop/switch failures restore separately below.
+            $record=& $Seams.ReadBridgeJson 'service.private.json'
+            $live=& $Seams.RestStatus
+            if($record.generation -ne $live.backend.generation -or $live.backend.state -ne 'ready'){throw 'Backend changed before the manual restart.'}
+            # The shared backend-start mutex is held across the exact
+            # stop+switch interval so no KeepAlive/startup Ensure can boot
+            # the OLD auth in between; it is released before the single
+            # post-switch boot and before any failure restore (those run
+            # child Ensure/Open processes, which would deadlock on a hold).
+            $forceGuard = Enter-BackendStartGuard -MutexName $BackendStartMutexName -WaitMs $BackendStartWaitMs
+            try{
+                try{
+                    & $Seams.StopBackendForced $bridgeDir $sharedSettings
+                }catch{
+                    $backendError=$_
+                    Exit-BackendStartGuard -Guard $forceGuard
+                    try{ & $Seams.EnsureBackend }catch{}
+                    throw $backendError
+                }
+                if($null -ne $plan.Account){
+                    try{
+                        Switch-CodexAuth $plan.Account $Seams
+                    }catch{
+                        $switchError=$_
+                        Exit-BackendStartGuard -Guard $forceGuard
+                        try{ & $Seams.EnsureBackend; & $Seams.OpenSharedApps }catch{}
+                        throw $switchError
+                    }
+                }
+            }finally{
+                Exit-BackendStartGuard -Guard $forceGuard
+            }
+            & $Seams.EnsureBackend
+        }
+        & $Seams.OpenSharedApps
+        Write-Host 'Codex Desktop is connected to the shared Paseo backend.' -ForegroundColor Green
+        return
+    }
+    if(($null -ne $plan.Account) -and -not $sharedMode){
+        # Non-shared mode only: stop-then-switch so no cached token
+        # survives the relaunch.
+        Switch-CodexAuth $plan.Account $Seams
+    }
+    $aumid = Resolve-ChatGptDesktopAumid $Seams
+    Write-Host "Launching new ChatGPT desktop app ('$aumid') ..." -ForegroundColor Cyan
+    & $Seams.StartProc "shell:AppsFolder\$aumid"
+    Write-Host "Done. The app re-read ~/.codex/auth.json on startup." -ForegroundColor Green
+    }finally{
+        $restartGuard.ReleaseMutex();$restartGuard.Dispose()
+    }
+}
+
+# Named arguments only: positional binding of $false into [switch] beside a
+# trailing negative literal mis-binds on some hosts (verified by fixture),
+# so every internal call site uses names.
+if($MyInvocation.InvocationName -ne '.'){ Invoke-CodexApp -Target $Target -TargetAccount $TargetAccount -Account $Account -NoStop:$NoStop -WaitSeconds $WaitSeconds -MutexName $MutexName -BridgeDirOverride $BridgeDirOverride -BackendStartMutexName $BackendStartMutexName -BackendStartWaitMs $BackendStartWaitMs -Seams $null }
