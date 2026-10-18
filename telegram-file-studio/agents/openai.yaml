@@ -1,0 +1,4 @@
+interface:
+  display_name: "Telegram File Studio"
+  short_description: "Maintain Usuf's private Telegram media and file toolkit"
+  default_prompt: "Use $telegram-file-studio to inspect, repair, or extend my existing Usuf File Studio bot safely."
