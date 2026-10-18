@@ -114,3 +114,7 @@ Start-Process explorer.exe
 ## Internals
 
 The Z-order script uses `EnumWindows`, `GetWindowLongPtr`, `SetWindowPos`, and `GetForegroundWindow` from `user32.dll`. The autostart installer uses the Windows ScheduledTasks module and a stable per-user `pwsh.exe` launcher when available. It does not edit the registry, DWM settings, Explorer binaries, or shell startup files.
+
+## Folder migration compatibility
+
+After the 2026-10-18 top-level migration, the existing scheduled task points to this canonical folder. A running watcher may still show its old launch path until the next normal sign-in. The status helper recognizes both exact paths; do not restart the watcher merely to refresh its command line. The watcher code itself is unchanged.
