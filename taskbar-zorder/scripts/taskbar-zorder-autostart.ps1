@@ -37,11 +37,16 @@ function Get-StablePowerShellHost {
 
 function Get-WatcherProcesses {
     $escapedScript = [regex]::Escape($watcherScript)
+    # Recognize the still-running instance launched before folder migration.
+    $skillsRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    $legacyRoot = Join-Path (Join-Path $skillsRoot 'skill-vault') 'vault'
+    $legacyScript = Join-Path $legacyRoot 'taskbar-zorder\scripts\taskbar-zorder.ps1'
+    $escapedLegacy = [regex]::Escape($legacyScript)
     @(
         Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
             Where-Object {
                 $_.ProcessId -ne $PID -and
-                $_.CommandLine -match $escapedScript -and
+                ($_.CommandLine -match $escapedScript -or $_.CommandLine -match $escapedLegacy) -and
                 $_.CommandLine -match '(?i)-Mode\s+KeepTaskbarLowered'
             }
     )

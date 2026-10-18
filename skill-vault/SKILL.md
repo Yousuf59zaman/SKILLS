@@ -1,69 +1,37 @@
 ---
 name: skill-vault
-description: Parent router skill for a private nested skill vault. Use when Yousuf says Skill-Vault, skill vault, vault skill, or asks Codex to choose a matching stored workflow, including Basha Commander Custom GPT agentic bridge updates, direct OpenClaw OpenCode Go setup, task-based model routing, capability-safe fallbacks, OpenCode Go cooldown bypass, default-first auth-profile rotation, AltSnap window resizing, persistent OpenClaw gateway terminals/watchdogs, Windows taskbar Z-order, or Relay AI and Claude Go setup.
+description: Read-only index and router for installed sibling skills. Use when Yousuf says Skill Vault, asks to find a saved workflow, or needs the former vault workflows for OpenClaw, FB Second Brain, Office/Basha Commander, Relay AI, AltSnap or taskbar ordering. Locate the matching independent top-level skill by its current name and description, then follow only that skill. Use agent-sync separately for requested agent or GitHub synchronization.
 ---
 
 # Skill Vault
 
-Use this as a parent router for nested skills stored under:
+Use this skill as an index, not as a container for other skills. The former vault workflows now live beside this folder in the current agent's `skills` root.
 
-```text
-C:\Users\User\.codex\skills\skill-vault\vault
-```
+## Route a request
 
-Do not assume every nested skill is relevant. Select the smallest matching child skill set for the user's task, then use only those child skill instructions and bundled resources.
+1. Resolve this skill's actual folder and its parent `skills` directory. Do not hard-code the Codex path when running from Claude, Antigravity, VSCode or OpenCode.
+2. Translate the request into a precise English workflow name or 3-8 search keywords when needed. Search the current top-level sibling skill frontmatter:
+   ```powershell
+   node "<this-skill>\scripts\find-vault-skill.mjs" --query "fb second brain" --json
+   ```
+   The existing PowerShell entrypoint remains compatible:
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File "<this-skill>\scripts\find-vault-skill.ps1" -Query "taskbar z order" -Top 5
+   ```
+3. Read the selected result's full `SKILL.md`; resolve its resources from that result's folder. Load only the smallest relevant set.
+4. Treat keyword scores as candidates, not authority or permission. If no result genuinely matches, use the normal approach rather than forcing a skill.
+5. Prefer current sibling source over old chat excerpts, archived copies or cached catalogs. See [the workflow index](references/workflow-index.md) for the former vault names and [the layout contract](references/layout-contract.md) before modifying organization.
 
-## Routing Workflow
+## Preserve independent discovery
 
-1. Convert the user's request into 3-8 search terms.
-2. Scan nested child skills under `vault/*/SKILL.md`.
-3. Prefer matching against each child skill's YAML `name` and `description`.
-4. If several children match, read only the top candidates' full `SKILL.md` files and choose the best fit.
-5. Execute the task by following the selected child skill's instructions. Resolve relative child resources from that child skill folder.
-6. If no child skill matches, say that Skill Vault has no matching child skill and continue with the best normal approach.
+- Install active workflows as `<skills-root>/<skill-name>/SKILL.md` with their complete scripts, references and assets.
+- Do not recreate a nested vault or put other `SKILL.md` entrypoints below this skill.
+- Keep one authoritative copy of each skill per agent root. Reconcile duplicate content before removing a copy.
+- Keep backups outside all active skill roots; a recursive loader may otherwise discover them.
+- Use the existing `agent-sync` skills track only when synchronization is requested. A routing request must not trigger installs, moves, syncs or GitHub writes.
+- Check external task/launcher dependencies before moving executable resources; preserve running services.
+- The scanner reads files only. It does not execute selected workflows, install Python, modify files, or contact a service.
 
-Use the bundled scanner for a fast first pass:
+## Verify the router
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codex\skills\skill-vault\scripts\find-vault-skill.ps1" -Query "<user request>"
-```
-
-## Child Skill Layout
-
-Add each child skill as a complete folder:
-
-```text
-skill-vault/
-  vault/
-    child-skill-name/
-      SKILL.md
-      agents/openai.yaml
-      scripts/
-      references/
-      assets/
-```
-
-Only `SKILL.md` is required. Optional folders can be present when the child skill needs them.
-
-## Current Child Skills
-
-- `taskbar-zorder`: Diagnose and control Windows taskbar Z-order so normal app windows can cover or stay above the taskbar/footer. Use for `Shell_TrayWnd`, `Shell_SecondaryTrayWnd`, taskbar topmost state, app-over-taskbar behavior, the persistent `KeepTaskbarLowered` watcher, duplicate watcher prevention, and current-user logon autostart.
-- `setup-relay-ai-claude-go`: Install, repair, and verify Relay AI 0.4.0 with signed Claude Desktop, secure OpenCode Go credential rotation, live Go favorites, and Relay/Codex configuration on Windows.
-- `setup-openclaw-opencode-go`: Keep OpenClaw on direct OpenCode Go with Muse Spark 1.2 Contributor primary for ordinary, browser/media, and cron work while preserving each complete former route as ordered fallbacks.
-- `route-openclaw-models-by-task`: Audit and enforce the Muse-first ordinary and browser/media/cron chains without letting route-state or future cron creation reorder them.
-- `fallback-openclaw-models-by-capability`: Preserve image, video, tool, coding, and reasoning capabilities while keeping the active Muse-first chains intact.
-- `bypass-opencode-go-cooldown`: Prevent one transient OpenCode Go failure from suspending the entire provider while still surfacing upstream limits.
-- `rotate-opencode-go-auth-profiles`: Prefer the default OpenCode Go profile and alternate fallback profiles only after provider/auth/transient failures; exclude `main-cron`.
-- `setup-windows-altsnap-resizer`: Install and verify AltSnap, its force-resize settings, controls, and Windows Startup shortcut.
-- `persist-openclaw-gateway`: Keep status and live-log terminals persistent and make supervisor/watchdog health include enabled Telegram workers, not only the gateway port.
-- `update-basha-commander-agentic-gpt`: Update the Basha Commander Custom GPT in Chrome with Codex-style agentic bridge behavior, verify enabled capabilities, handle the 8000-character save limit, smoke-test bridge execution, confirm no Allow/Deny prompt, and verify audit-log success.
-- `setup-office-commander-gpt`: Build, repair, migrate, or verify the separate Office Commander Custom GPT and authenticated office-laptop bridge for Windows, Chrome, Google Workspace, GitHub, Figma, and Postman while keeping Basha Commander untouched.
-- `build-openclaw-mission-control`: Build, audit, secure, deploy, repair, or extend the private OpenClaw Mission Control with admin sign-in, a signed localhost bridge, native persistent chat, operational controls, and a sanitized capability Toolbox.
-- `fb-second-brain`: Save Telegram text and media into the narrowest OpenClaw memory file, durably queue eligible image/video/audio/link drops, and drain them sequentially to the exact Messenger second-brain group with verified-only removal.
-
-## Guardrails
-
-- Do not load all child skill bodies when many exist. Scan frontmatter first, then load only the matching child skill.
-- Do not copy or modify a child skill unless the user asks to add, update, or remove a vault skill.
-- For child scripts, run them from the child skill folder or use their absolute path.
-- If the chosen child skill performs live system changes, explain the effect and restore path when appropriate.
+Run `node "<this-skill>\scripts\test-router.mjs"`. Use `--root <skills-directory>` only to inspect a specific alternate installation. For each agent, verify that results resolve inside that agent's own root.

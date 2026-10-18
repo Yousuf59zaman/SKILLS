@@ -1,73 +1,12 @@
 param(
-    [Parameter(Mandatory = $true)]
-    [string] $Query,
-
-    [int] $Top = 8
+    [Parameter(Mandatory = $true)][string] $Query,
+    [ValidateRange(1, 50)][int] $Top = 8
 )
-
 $ErrorActionPreference = 'Stop'
-
-$vaultRoot = Join-Path (Split-Path -Parent (Split-Path -Parent $PSCommandPath)) 'vault'
-if (-not (Test-Path -LiteralPath $vaultRoot)) {
-    throw "Vault folder not found: $vaultRoot"
-}
-
-function Get-SkillFrontmatter {
-    param([string] $SkillFile)
-
-    $text = Get-Content -LiteralPath $SkillFile -Raw
-    $name = ''
-    $description = ''
-
-    if ($text -match '(?s)^---\s*(.*?)\s*---') {
-        $frontmatter = $Matches[1]
-        foreach ($line in ($frontmatter -split "`r?`n")) {
-            if ($line -match '^\s*name:\s*(.+?)\s*$') {
-                $name = $Matches[1].Trim().Trim('"').Trim("'")
-            } elseif ($line -match '^\s*description:\s*(.+?)\s*$') {
-                $description = $Matches[1].Trim().Trim('"').Trim("'")
-            }
-        }
-    }
-
-    [pscustomobject] @{
-        Name = $name
-        Description = $description
-        Path = Split-Path -Parent $SkillFile
-        SkillFile = $SkillFile
-    }
-}
-
-$terms = $Query.ToLowerInvariant() -split '[^a-z0-9_+\-.]+' |
-    Where-Object { $_ -and $_.Length -gt 1 } |
-    Select-Object -Unique
-
-$skills = Get-ChildItem -LiteralPath $vaultRoot -Directory |
-    ForEach-Object {
-        $skillFile = Join-Path $_.FullName 'SKILL.md'
-        if (Test-Path -LiteralPath $skillFile) {
-            Get-SkillFrontmatter -SkillFile $skillFile
-        }
-    }
-
-$skills |
-    ForEach-Object {
-        $haystack = (($_.Name + ' ' + $_.Description + ' ' + (Split-Path -Leaf $_.Path)).ToLowerInvariant())
-        $score = 0
-        foreach ($term in $terms) {
-            if ($haystack.Contains($term)) {
-                $score += 1
-            }
-        }
-
-        [pscustomobject] @{
-            Score = $score
-            Name = $_.Name
-            Folder = Split-Path -Leaf $_.Path
-            Description = $_.Description
-            Path = $_.Path
-            SkillFile = $_.SkillFile
-        }
-    } |
-    Sort-Object Score, Name -Descending |
-    Select-Object -First $Top
+$node = Get-Command node.exe -ErrorAction SilentlyContinue
+if (-not $node) { throw 'Node.js is required for this read-only router. No software was installed.' }
+$script = Join-Path $PSScriptRoot 'find-vault-skill.mjs'
+$raw = & $node.Source $script --query $Query --top $Top --json
+if ($LASTEXITCODE -ne 0) { throw 'Skill discovery failed. Verify the current skill root and query.' }
+$items = ($raw -join [Environment]::NewLine) | ConvertFrom-Json
+$items | ForEach-Object { $_ }

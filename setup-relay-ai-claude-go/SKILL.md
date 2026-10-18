@@ -23,7 +23,7 @@ Orchestrate the complete Windows setup while preserving the Claude profile and k
 2. Audit without mutation:
 
 ```powershell
-$skill = "$env:USERPROFILE\.codex\skills\skill-vault\vault\setup-relay-ai-claude-go"
+$skill = "$env:USERPROFILE\.codex\skills\setup-relay-ai-claude-go"
 powershell -NoProfile -ExecutionPolicy Bypass -File "$skill\scripts\audit-relay-claude-go.ps1"
 ```
 
