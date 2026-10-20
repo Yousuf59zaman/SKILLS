@@ -26,3 +26,29 @@ Validation checklist:
 7. `logs\gateway-live.out.log` contains actual OpenClaw gateway output, not only periodic status messages.
 
 If scheduled task edits fail with Access Denied, report it and continue; file-level repair is still useful. Do not force elevation.
+
+## Visibility note (2026-10-19): automated children must not open consoles
+
+- The visible consoles are intentional and belong to the user: the manual status
+  console plus the separate live-log tail. Automated gateway/prewarm spawns must
+  never create or focus an additional console while those are already open.
+- Any `Start-Process` that launches an automated child with redirected
+  stdout/stderr must carry `-NoNewWindow` so the console-subsystem child keeps
+  the current (or no) console instead of requesting its own. Applied to the
+  gateway child spawn in `gateway-supervisor-manual-only.ps1` (single flag,
+  on-disk fix; takes effect only when the supervisor reloads the file — a
+  running supervisor keeps executing its already-loaded source).
+- Windows PowerShell 5.1 rejects `-NoNewWindow` combined with `-WindowStyle`;
+  use one or the other (redirected console child: `-NoNewWindow`).
+- Status 2026-10-19 ~23:39: fix ACTIVE — a fresh supervisor generation loaded the
+  patched source (user-approved OpenClaw-only restart; accepted hash verified
+  pre-stop and unchanged after, fresh hidden-VBS supervisor birth, new
+  after-patch child, state `running`). Launch-count reset merely corroborates
+  reinit; it alone does not prove loaded bytes. Activation UI-event coverage is
+  UNOBSERVED (restart fell in the 23:24:25-23:38:19 witness gap) — no
+  flash-free claim; never restart for an observability test. Flash-free
+  recovery awaits the first genuine recovery and was not forced.
+- Never relaunch from a visible manual console as an activation path for a
+  hidden fix: it risks duplicate/focused windows. Use the existing hidden
+  service entrypoint (`wscript.exe //B //Nologo gateway-supervisor-hidden.vbs`,
+  same path `gateway.cmd` service mode and the logon scheduled task take).

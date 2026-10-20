@@ -1,9 +1,13 @@
 ---
 name: orangebd-project
-description: Strict OrangeBD project workflow and framework-specific pattern guardrails. Use whenever working on OrangeBD projects or related codebases such as CPIS, Accessimate, HeyHomex, React, Next.js App Router, Nuxt, Vue, Laravel, Inertia, admin panels, dashboards, reports, API integration, auth, route groups, Server/Client Components, pagination, hydration, reusable fields/components, Figma-to-code, QA, project documentation, or future projects that should follow OrangeBD conventions.
+description: "Strict OrangeBD project workflow and framework-specific pattern guardrails. Use whenever working on OrangeBD projects or related codebases such as CPIS, Accessimate, HeyHomex, React, Next.js App Router, Nuxt, Vue, Laravel, Inertia, admin panels, dashboards, reports, API integration, auth, route groups, Server/Client Components, pagination, hydration, reusable fields/components, Figma-to-code, QA, project documentation, or future projects that should follow OrangeBD conventions. Also handle requests using the former skill name orangebd-workflow."
 ---
 
 # OrangeBD Project
+
+## Unified office rules
+
+Read [office workflow and detailed conventions](references/office-workflow.md) for every OrangeBD task, then load only the relevant framework references below. This reference preserves JavaScript/TypeScript, naming, shared-field/icon, Figma, dashboard, API, request-flow documentation and QA rules from the former workflow skill. Apply only rules relevant to the actual stack. Explicit user requirements and the inspected repository architecture take precedence over defaults; do not introduce Next.js middleware into an app whose existing role-layout architecture forbids it. Demo fixtures are allowed only for explicitly identified demos, never as fabricated production API responses. Never update skill files during ordinary project work without permission.
 
 This skill is mandatory for OrangeBD project work. Treat it as the strict operating manual before reading, planning, editing, reviewing, documenting, testing, or delivering any OrangeBD-related task.
 
@@ -245,3 +249,7 @@ OrangeBD project rules followed
 ```
 
 For code review requests, findings come first with file/line references, then assumptions, then summary.
+
+## Maintenance
+
+See [consolidation record](references/consolidation.md) for the former entrypoint and preservation contract.

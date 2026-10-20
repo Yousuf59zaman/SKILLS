@@ -1,9 +1,13 @@
 ---
 name: route-openclaw-models-by-task
-description: Audit, repair, and test OpenClaw routing so Muse Spark 1.3 Contributor is primary for ordinary work, explicit browser/web actions, attached media, and main-cron, while each route preserves its complete former primary-plus-fallback order behind Muse.
+description: "Audit, repair, and test OpenClaw routing so Muse Spark 1.3 Contributor is primary for ordinary work, explicit browser/web actions, attached media, and main-cron, while each route preserves its complete former primary-plus-fallback order behind Muse. Also handle requests using the former skill name setup-openclaw-opencode-go."
 ---
 
 # Route OpenClaw Models by Task
+
+## Select the requested operation
+
+For native OpenCode Go provider setup, capability metadata or provider drift, first read [native provider setup](references/native-provider-setup.md). For task selection, browser/media/cron routing and fallback order, follow the routing contract below. Both operations use the existing canonical routing enforcer; retain separate task, media and cron branches. Keep credential rotation and `fallback-openclaw-models-by-capability` as independent skills. A documentation merge is never permission to activate a provider, run a live probe, alter consent or restart the gateway.
 
 Keep model ownership explicit and fail closed.
 
@@ -64,3 +68,7 @@ On Windows, verify a real Gateway PID change and the live `agents.list` model va
 - Preserve each former route exactly behind Muse: ordinary work gets the old OmniRoute primary followed by its old fallbacks; browser/media/cron gets the old DeepSeek Vision primary followed by its old fallbacks.
 - Muse Contributor is not ZDR and may use prompts/completions for training. Require explicit user consent and a successful no-tool provider canary before first live activation or reactivation after a material data-policy change. Persist only a non-secret exact-model/consent/current-workspace-opt-in/canary attestation, and make the canonical enforcer fail closed on production apply when it is absent or invalid.
 - Do not claim completion from static config alone; require deterministic tests plus fresh post-restart runtime evidence.
+
+## Maintenance
+
+See [consolidation record](references/consolidation.md) for the former entrypoint and preservation contract.

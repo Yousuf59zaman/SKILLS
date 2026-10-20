@@ -88,6 +88,7 @@ async function main() {
     };
 
     // Redirect ALL Codex-CLI state path resolution into the temp sandbox.
+    process.env.CODEX_HOME = tmp;
     process.env.CODEX_CLI_AUTH_PATH = fakeAuthPath;
     process.env.CODEX_CLI_ACCOUNTS_PATH = fakeAccountsPath;
     // Ensure sync is enabled (default true) and not disabled by host env:
@@ -104,14 +105,12 @@ async function main() {
     if (changed !== true) fail(`expected capture to return true (changed), got ${changed}`);
     const got = tempStorage.accounts[0].refreshToken;
     if (got !== rotatedRefresh) {
-      fail(`store refresh token not updated. expected ${rotatedRefresh.slice(0, 12)}…, still has ${String(got).slice(0, 12)}… — capture-back did NOT move the rotated token into the store`);
+      fail("store refresh token was not updated in the synthetic fixture");
     }
     if (tempStorage.accounts[0].accessToken && tempStorage.accounts[0].accessToken !== "") {
       // fine but not asserted
     }
     pass("rotated refresh token captured into temp store (capture-back works)");
-    info(`  account id: ${tempStorage.accounts[0].accountId}`);
-    info(`  old token tail: ${oldRefresh.slice(-10)} -> new token tail: ${got.slice(-10)}`);
   } finally {
     try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* best effort */ }
   }

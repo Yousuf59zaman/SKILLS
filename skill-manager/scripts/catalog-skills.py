@@ -64,7 +64,8 @@ def codex_home() -> Path:
 
 
 def default_root() -> Path:
-    return codex_home() / "skills"
+    # Resolve the agent root from this installed copy, not a different agent.
+    return Path(__file__).resolve().parents[2]
 
 
 def plugin_cache_root() -> Path:
