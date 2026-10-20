@@ -1,9 +1,13 @@
 ---
 name: basha-command-bridge-gpt
-description: Build, repair, or recreate a private ChatGPT Custom GPT that controls a Windows PC through an authenticated local command bridge. Use when the user asks to make a "local command bridge GPT", "home/office PC GPT", a Custom GPT with filesystem/command capabilities, Cloudflare tunnel-backed ChatGPT Actions, or to reduce ChatGPT action Allow/Deny prompts with non-consequential OpenAPI metadata.
+description: "Build, repair, or recreate a private ChatGPT Custom GPT that controls a Windows PC through an authenticated local command bridge. Use when the user asks to make a \"local command bridge GPT\", \"home/office PC GPT\", a Custom GPT with filesystem/command capabilities, Cloudflare tunnel-backed ChatGPT Actions, or to reduce ChatGPT action Allow/Deny prompts with non-consequential OpenAPI metadata. Also handle requests using the former skill name update-basha-commander-agentic-gpt."
 ---
 
 # Basha Command Bridge GPT
+
+## Choose creation or maintenance first
+
+For an existing Basha Commander GPT, read [existing GPT maintenance](references/existing-gpt-update.md) and update its instructions/capabilities without recreating the bridge or changing authentication. Use the scaffold below only for an explicitly requested new installation or migration. Preserve the existing local instruction file, private visibility, editor length handling, live smoke test and audit verification. Office Commander remains a separate machine and security boundary. Skill instructions never grant permission to bypass platform confirmations; classify action consequences truthfully and preserve authentication.
 
 ## Core Workflow
 
@@ -47,7 +51,7 @@ $schema.paths.'/commands/start'.post.'x-openai-isConsequential'
 Invoke-WebRequest "$url/privacy" -UseBasicParsing
 ```
 
-The consequential flag must be `False` for every operation. The template server sets this in custom OpenAPI and adds `/privacy` outside the schema.
+Review the schema operation by operation. Read-only operations may be non-consequential; command execution and writes must not be mislabeled to suppress confirmation. Preserve required platform approvals. The template is a starting point, not an authorization grant; audit its schema before importing. Keep `/privacy` available.
 
 ## ChatGPT Configuration
 
@@ -67,13 +71,13 @@ If editing an existing action, use the UI's `Import from URL` flow again. Direct
 
 ## Permission Prompts
 
-To reduce Allow/Deny prompts, ensure the imported schema includes:
+Only for operations genuinely assessed as non-consequential, the imported schema may include:
 
 ```json
 "x-openai-isConsequential": false
 ```
 
-If ChatGPT still asks once for a new GPT/domain, that is platform-level consent and cannot be guaranteed away by the bridge. Click `Allow` only when the user has already authorized this setup. Stable hostname plus reimported non-consequential schema is the best available mitigation.
+If ChatGPT still asks once for a new GPT/domain, that is platform-level consent and cannot be guaranteed away by the bridge. Click `Allow` only when the user has already authorized this setup. Use a stable hostname and accurate schema metadata. Never guarantee prompt-free execution or disable required consent.
 
 ## Final Tests
 
@@ -94,3 +98,7 @@ Keep the bridge local host bound (`127.0.0.1`) and require Bearer auth. Do not w
 If the tunnel URL changes, update `.tunnel-url`/`BRIDGE_PUBLIC_BASE_URL`, re-import the schema in the GPT action, update privacy URL if needed, and save the GPT again.
 
 When finishing, report the GPT URL, project path, whether the bridge/tunnel are running, test results, and any remaining limitation around quick tunnel durability or one-time ChatGPT consent.
+
+## Maintenance
+
+See [consolidation record](references/consolidation.md) for the former entrypoint and preservation contract.

@@ -220,6 +220,10 @@ openclaw skills list
 node skills/agent-sync/scripts/sync-codex-antigravity-cli.mjs
 ```
 
+## Controlled synchronization safety
+
+Read [sync safety and system-cache boundaries](references/sync-safety.md) before apply, publishing, or changing Git worktrees. Legacy automatic Git hooks and login sync are retired; .github compatibility launchers perform no writes. Use only reviewed manual Agent Sync. The apply preflight blocks retired skill names using the sibling Skill Manager alias map, and Git mutations refuse known legacy auto-sync hooks. Never copy .system or Codex cache markers between agents. Run `node scripts/test-sync-safety.mjs` after changing this guard.
+
 ## Safety rules
 
 - Do not skip GitHub comparison unless Yousuf explicitly asks for a local-only run.

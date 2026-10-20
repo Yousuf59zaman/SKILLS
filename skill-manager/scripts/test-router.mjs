@@ -1,0 +1,35 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+import {metadata,discover,search} from './find-vault-skill.mjs';
+const here=path.dirname(fileURLToPath(import.meta.url));
+const aliases=JSON.parse(fs.readFileSync(path.join(here,'../references/skill-aliases.json'),'utf8'));
+const root=fs.mkdtempSync(path.join(os.tmpdir(),'skill-router-test-'));
+function put(where,name,description){fs.mkdirSync(path.join(root,where),{recursive:true});fs.writeFileSync(path.join(root,where,'SKILL.md'),`---\nname: ${name}\ndescription: ${description}\n---\nDo not execute this fixture.\n`);}
+put('fb-second-brain','fb-second-brain','Save authorized memory and queue Messenger media.');
+put('taskbar-zorder','taskbar-zorder','Inspect Windows taskbar and watcher status.');
+put('telegram-file-studio','telegram-file-studio','Resize images and convert documents.');
+for(const [old,name]of Object.entries(aliases)){put(name,name,'Canonical workflow fixture.');put(old,old,'Retired duplicate fixture.');}
+put('skill-manager/vault/hidden-child','hidden-child','secretkeyword');
+put('.archive/hidden-copy','hidden-copy','secretkeyword');
+const initial=fs.readFileSync(path.join(root,'fb-second-brain','SKILL.md'),'utf8');
+test('discovers nine independent siblings, excluding router and retired entries',()=>assert.equal(discover(root).length,9));
+test('nested and archived skills are not registered',()=>assert.deepEqual(search(root,'secretkeyword'),[]));
+test('exact canonical skill id ranks first',()=>assert.equal(search(root,'fb-second-brain')[0].Name,'fb-second-brain'));
+test('human keywords select the taskbar skill',()=>assert.equal(search(root,'taskbar watcher')[0].Name,'taskbar-zorder'));
+test('description keywords select file conversion',()=>assert.equal(search(root,'resize images')[0].Name,'telegram-file-studio'));
+test('unmatched and punctuation-only queries return none',()=>{assert.deepEqual(search(root,'zzunmatchedzz'),[]);assert.deepEqual(search(root,'!!!'),[]);});
+test('invalid result limits are rejected',()=>{for(const n of [0,51,1.5,NaN])assert.throws(()=>search(root,'windows',n));});
+test('missing root is reported',()=>assert.throws(()=>discover(path.join(root,'missing'))));
+test('alternate root never falls back to Codex',()=>assert.ok(search(root,'memory')[0].Path.startsWith(root+path.sep)));
+test('multiline YAML description is recognized',()=>assert.equal(metadata('---\nname: sample\ndescription: >\n  Find images\n  and resize\n---\n').description,'Find images and resize'));
+test('quoted JSON-style frontmatter is parsed',()=>assert.equal(metadata('---\nname: sample\ndescription: '+JSON.stringify('Find "images"')+'\n---\n').description,'Find "images"'));
+for(const [old,name]of Object.entries(aliases))test('former name resolves: '+old,()=>{const r=search(root,old);assert.equal(r.length,1);assert.equal(r[0].Name,name);assert.equal(r[0].MatchedAlias,old);assert.equal(r[0].Path,path.join(root,name));});
+test('router can be explicitly selected',()=>assert.equal(search(root,'skill-manager')[0].Name,'skill-manager'));
+test('unknown CLI flags fail',()=>{const r=spawnSync(process.execPath,[path.join(here,'find-vault-skill.mjs'),'--unknown'],{encoding:'utf8'});assert.equal(r.status,1);});
+test('queries do not change source files',()=>assert.equal(fs.readFileSync(path.join(root,'fb-second-brain','SKILL.md'),'utf8'),initial));
+test.after(()=>fs.rmSync(root,{recursive:true,force:true}));

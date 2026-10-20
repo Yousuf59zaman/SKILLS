@@ -15,9 +15,10 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 const args = process.argv.slice(2);
-const SCRIPT_DIR = path.dirname(new URL(import.meta.url).pathname.replace(/^\//, ""));
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SKILL_DIR = path.dirname(SCRIPT_DIR);
 
 function hasFlag(name) { return args.includes(name); }

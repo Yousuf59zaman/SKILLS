@@ -1,9 +1,20 @@
 ---
 name: codex-multi-auth-app-setup
-description: Install and verify the codex-multi-auth 2.6.0 capture-back fix plus the new-ChatGPT-desktop-app launcher so account switching survives refresh-token rotation and the app re-reads ~/.codex/auth.json after a switch. Use when Yousuf wants to reproduce this working state on another machine (e.g. office laptop), after a fresh `npm i -g codex-multi-auth@latest`, after `codex app` says "Codex Desktop not found" for the Store/MSIX ChatGPT app, or when `Get-Process Codex,codex` failed to actually stop the desktop app.
+description: "Install and verify the codex-multi-auth 2.6.0 capture-back fix plus the new-ChatGPT-desktop-app launcher so account switching survives refresh-token rotation and the app re-reads ~/.codex/auth.json after a switch. Use when Yousuf wants to reproduce this working state on another machine (e.g. office laptop), after a fresh `npm i -g codex-multi-auth@latest`, after `codex app` says \"Codex Desktop not found\" for the Store/MSIX ChatGPT app, or when `Get-Process Codex,codex` failed to actually stop the desktop app. Also handle requests using the former skill name codex-multi-auth-refresh-guard."
 ---
 
 # Codex Multi Auth + ChatGPT Desktop App Setup
+
+## Version-aware entrypoint
+
+This skill now owns both desktop setup/capture-back and the former refresh guard. They are distinct version-specific implementations, not interchangeable patches. First inspect package version and source layout without loading credentials.
+
+- For legacy 2.2.x/2.3.x, read [legacy refresh guard](references/legacy-refresh-guard.md). Its retained script covers account switching, startup auto-sync and menu drift-sync. Default is check-only; explicit `--apply` is required.
+- For the recognized modern modular capture-back layout, use `scripts/apply-setup.mjs` below after checking patch anchors. Do not assume all newer versions are compatible merely because the version is larger. Never stack the old patch onto a modern package.
+- Keep the installed shared launcher byte-identical unless a launcher change is separately requested. Keep `codex-paseo-sync` as the owner of shared-backend recovery.
+- For merge verification run `node "<this-skill>/scripts/test-auth-merge.mjs"`; it uses synthetic fixtures, never live tokens or accounts. Unknown layouts must refuse without live mutation.
+
+An instruction merge does not run either installer, switch accounts, copy real auth to temp, upgrade packages, stop apps, or restart backends.
 
 Reproduces the working multi-auth + desktop-app state from the dev laptop onto
 another machine (office laptop). It does three things, all idempotent, and then
@@ -205,3 +216,7 @@ copy): every stop/switch/boot path first proves the state of frozen ports
   side.
 - Read-only diagnostics print PASS/FAIL, booleans, counts, and category
   labels only — never tokens, emails, ids, transcripts, or raw logs.
+
+## Maintenance
+
+See [consolidation record](references/consolidation.md) for the former entrypoint and preservation contract.

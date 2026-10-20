@@ -1,0 +1,9 @@
+{
+  "setup-windows-altsnap-resizer": "windows-resizer",
+  "setup-openclaw-opencode-go": "route-openclaw-models-by-task",
+  "persist-openclaw-gateway": "openclaw-gateway-persistent-terminal",
+  "orangebd-workflow": "orangebd-project",
+  "update-basha-commander-agentic-gpt": "basha-command-bridge-gpt",
+  "skill-vault": "skill-manager",
+  "codex-multi-auth-refresh-guard": "codex-multi-auth-app-setup"
+}

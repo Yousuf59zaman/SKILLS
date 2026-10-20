@@ -1,9 +1,13 @@
 ---
 name: windows-resizer
-description: Set up and troubleshoot Windows utilities for force-moving and force-resizing stubborn desktop app windows, especially Electron/Chromium apps such as Codex Desktop, OpenCode, Claude, ChatGPT, and fixed-minimum-size utility windows. Use when the user wants any app window to become easier to resize, wants AltSnap/ResizeEnable/Sizer installed or configured, wants Codex Desktop minimum window size diagnosed, or wants Electron/Tauri app.asar/minWidth/minHeight/resizable settings inspected before any patching.
+description: "Set up and troubleshoot Windows utilities for force-moving and force-resizing stubborn desktop app windows, especially Electron/Chromium apps such as Codex Desktop, OpenCode, Claude, ChatGPT, and fixed-minimum-size utility windows. Use when the user wants any app window to become easier to resize, wants AltSnap/ResizeEnable/Sizer installed or configured, wants Codex Desktop minimum window size diagnosed, or wants Electron/Tauri app.asar/minWidth/minHeight/resizable settings inspected before any patching. Also handle requests using the former skill name setup-windows-altsnap-resizer."
 ---
 
 # Windows Resizer
+
+## Consolidated workflow
+
+Use this single entrypoint for general window resizing and the former AltSnap setup workflow. Read [AltSnap setup and verification](references/altsnap-setup.md) for configuration and startup checks. Both routes use the existing `scripts/setup-windows-resizer.ps1`; do not create a second installer. Keep ResizeEnable/Sizer and approved package-inspection alternatives below.
 
 ## Default Workflow
 
@@ -75,3 +79,7 @@ Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\AltSnap.ln
 ```
 
 For app window evidence, inspect visible windows and style flags. A window may still have a sizing border while enforcing a minimum size internally; in that case AltSnap with `IgnoreMinMaxInfo=3` is the strongest non-patching option.
+
+## Maintenance
+
+See [consolidation record](references/consolidation.md) for the former entrypoint and preservation contract.
