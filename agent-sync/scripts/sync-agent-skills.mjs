@@ -4,6 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { assertSafeSkillApply, assertSafeGitHooks } from './sync-safety.mjs';
 
 const HOME = os.homedir();
 const WORKSPACE = path.join(HOME, '.openclaw', 'workspace');
@@ -416,6 +417,7 @@ function run(command, args, options = {}) {
 }
 
 function git(worktree, args) {
+  assertSafeGitHooks(worktree, args);
   return run('git', ['-C', worktree, ...args]);
 }
 
@@ -971,6 +973,7 @@ function rootInfoFromInventory(rootName, inv, canonicalMap) {
 
 function main() {
   const opts = parseArgs(process.argv.slice(2));
+  assertSafeSkillApply(opts);
   const startedAt = new Date().toISOString();
   const roots = Object.entries(opts.roots).map(([name, root]) => ({ name, root }));
   const inventories = Object.fromEntries(roots.map(r => [r.name, discoverSkills(r.root, opts)]));
