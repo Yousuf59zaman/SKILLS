@@ -39,6 +39,15 @@ The inspected `studio-v2/release.json` records release 2.0.0 on 2026-10-18:
 
 These are historical recorded results. Do not say they passed again unless actually rerun. No real near-2000-MB conversion/transfer was established by those small tests.
 
+### Subsequent 2026-10-20 download changes
+
+- **iPhone Photos:** a manually converted H.264/AAC MP4 did save successfully to the user's iPhone Photos; an earlier MP4 with AV1/Opus had not. The automatic fixed-720p output has not yet been independently confirmed on-device.
+- **Compatibility selection:** the downloader now prefers native H.264/AAC and inspects the actual output, transcoding only if needed. A real YouTube Shorts download produced 720 x 1280 H.264/AAC without fallback conversion.
+- **Hard 720p policy:** synthetic 1080 x 1920 -> 720 x 1280, 1920 x 1080 -> 1280 x 720, and 480 x 854 -> unchanged. The live saved setting was inspected as `video: '720'` after bot restart.
+- **Telegram UI:** 16 mocked UI tests passed after limiting the menu to 720p and blocking legacy higher-quality callback selections. Final video captions report actual file size and dimensions.
+- **Instagram:** a Reel returned upstream audience-restricted metadata access; another public Reel was reported working by the user. Five classifier cases plus a mocked restricted-error UI passed; no Instagram authentication/cookies were used.
+- Consult `studio-v2/release.json` for versioned `iphoneCompatibilityPatch`, `instagramAccessMessagingPatch` and `fixed720pDownloadPatch`. Treat all tests as dated, not universal guarantees.
+
 ## Publish only what the user requested
 
 Load the existing `agent-sync/SKILL.md` first. The known Codex root is `%USERPROFILE%\.codex\skills`; default peers are `%USERPROFILE%\.claude\skills`, `%USERPROFILE%\.gemini\antigravity\skills`, `%USERPROFILE%\.vscode\skills` and `%USERPROFILE%\.config\opencode\skills`. Verify actual paths each run.

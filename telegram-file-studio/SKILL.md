@@ -1,6 +1,6 @@
 ---
 name: telegram-file-studio
-description: Operate, troubleshoot, extend and safely update Yousuf's existing Usuf File Studio Telegram bot at G:\TelegramVideoBot on his authorized Windows PC. Use for the Telegram video downloader, image resize/edit/compression, file conversion, PDF/document/media tools, button menus, batch/queue/cancel, Docker Local Bot API, Windows silent startup, bot recovery, or saving and syncing this project's reusable knowledge. Trigger on references to Usuf File Studio, usufvideodwnlderbot, the 2 GB Telegram bot, or continuing this Telegram project. Use Remote Desktop Commander for PC work and the existing agent-sync skill for agent/GitHub synchronization.
+description: Operate, troubleshoot, extend and safely update Yousuf's existing Usuf File Studio Telegram bot at G:\TelegramVideoBot on his authorized Windows PC. Use for the Telegram video downloader (fixed 720p, iPhone Photos codec compatibility, Instagram Reel access errors), image resize/edit/compression, file conversion, PDF/document/media tools, button menus, batch/queue/cancel, Docker Local Bot API, Windows silent startup, bot recovery, or saving and syncing this project's reusable knowledge. Trigger on references to Usuf File Studio, usufvideodwnlderbot, the 2 GB Telegram bot, or continuing this Telegram project. Use Remote Desktop Commander for PC work and the existing agent-sync skill for agent/GitHub synchronization.
 ---
 
 # Telegram File Studio
@@ -11,7 +11,7 @@ Maintain the existing application; do not replace it with a demo or create anoth
 
 1. Use the authorized Remote Desktop Commander connection. Discover its actual tool schema; select the online device before reading files. Do not invent `functions.exec`, `ALL_TOOLS`, or MCP function names from old transcripts.
 2. Resolve `G:\TelegramVideoBot` on that PC. Do not confuse remote Windows paths with the assistant's working container. If the path is absent, locate the project or ask; do not silently create an empty replacement.
-3. Read the relevant current source and the project's `studio-v2/README.md` and `studio-v2/release.json`. Treat the dated reference snapshot as a starting point, not current health.
+3. Read the relevant current source and the project's `studio-v2/README.md` and `studio-v2/release.json`. Treat the dated reference snapshot as a starting point, not current health. For download quality, Photos import, Instagram availability, or video size/resolution issues, load [video-download-policy.md](references/video-download-policy.md) and check the live settings before recommending a change.
 4. Run the bundled read-only inspector on the PC:
    ```powershell
    node "<this-skill>\scripts\inspect-studio.mjs" --project "G:\TelegramVideoBot"
@@ -29,6 +29,7 @@ Maintain the existing application; do not replace it with a demo or create anoth
 - Keep one supervisor and one polling bot. Do not start a second `npm start`/`node bot.js` beside a healthy supervisor. Never kill all Node, Docker, WSL or PowerShell processes to restart this bot.
 - Describe startup accurately: automatic **after Windows sign-in**, not a Windows service guaranteed to start before login. The PC must remain powered and connected.
 - Offer compatible conversions only. Do not promise arbitrary any-to-any conversion, perfect PDF-to-Word layout, OCR, recovered upscale detail or lossless preservation across unlike formats.
+- Keep video link downloads capped at **720p maximum** (shorter edge, portrait and landscape) with native H.264/AAC preferred and no upscale of smaller sources. Distinguish this from the separate manual file-conversion feature; see [video-download-policy.md](references/video-download-policy.md).
 
 ## Implement changes safely
 

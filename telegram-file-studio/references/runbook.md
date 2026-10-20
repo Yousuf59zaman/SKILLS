@@ -36,6 +36,14 @@ The old PowerShell expression `@('BOT_TOKEN='+$token, 'OWNER_ID='+$userId, ...)`
 
 An old 2018 FFmpeg binary failed a real audio/video merge. It was replaced and the merge retested. Check the host `bin/ffmpeg.exe` used by yt-dlp separately from FFmpeg in the converter image. Do not assume a file existing means a compatible binary. Use the configured Node JavaScript runtime for yt-dlp rather than silently ignoring runtime warnings.
 
+### Video links and iPhone Photos troubleshooting (2026-10-20)
+
+Read [video-download-policy.md](video-download-policy.md) for the current **hard 720p link-output maximum** and precise flow. The current implementation prefers native H.264/AAC/yuv420p MP4 at up to 720p, then uses the isolated converter only if needed. The 720p limit is by shorter edge, so portrait is usually 720 x 1280. Inspect final dimensions and codec via ffprobe; filenames and file sizes alone do not establish compatibility or resolution. Captions include measured output width/height and MB.
+
+If Telegram says "Saved to Photos" but iPhone Photos has no video, inspect Photos > Recently Saved, the iOS Photos permission and actual codec. A prior AV1/Opus MP4 failed on iPhone while its H.264/AAC converted MP4 successfully imported. Do not claim the latest automatically selected 720p output was end-to-end tested on that phone unless the user has confirmed it. If necessary, try File > Save to Files > Share > Save Video.
+
+If Instagram reports "This content isn't available to everyone" at metadata extraction, it is an upstream audience/login-access restriction, not a codec or Photos issue. Public alternatives can work. The bot now shows a concise Bangla error and omits pointless retries; never automatically access browser cookies, credentials or restricted accounts.
+
 ### Telegram chat not found or no response
 
 Check authorized owner matching without echoing credentials. The user must open their bot and press Start before a normal bot can reply in that private chat. Check owner restriction, private chat type, Telegram reachability, pending jobs and duplicate polling. Do not widen owner access to diagnose.

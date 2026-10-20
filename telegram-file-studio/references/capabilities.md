@@ -1,12 +1,12 @@
 # Capabilities and interaction contract
 
-Source: inspected `studio-v2/README.md` and `services.mjs`, 2026-10-18. Re-read current `FORMATS`, worker checks and menus before offering a specific pair.
+Source: inspected `studio-v2/README.md`, `services.mjs` and `release.json` through 2026-10-20. Re-read current `FORMATS`, worker checks and menus before offering a specific pair. For link-resolution, iPhone Photos and Instagram upstream restrictions, load [video-download-policy.md](video-download-policy.md).
 
 ## User interface
 
 Send `/menu` for the home keyboard. File messages reveal contextual actions instead of requiring long commands. Preserve `/status`, `/queue`, `/cancel`, `/batch`, `/settings`, `/formats`, `/help`. Converted files return as documents with useful size/dimension summaries; retain buttons to work on the result or original again.
 
-Use high quality by default, with balanced/smaller options; video download defaults to best available. Request images as **File/Document** to preserve source resolution. Telegram photo uploads can already be reduced before the bot receives them. Preserve Back/Home/Cancel, flood-limit handling, expiry messages, actionable validation errors and retry.
+Use high quality by default for general media conversion, with balanced/smaller options; **video link downloads are now fixed to a 720p maximum**, regardless of an older saved Best/1080p preference. Request images as **File/Document** to preserve source resolution. Telegram photo uploads can already be reduced before the bot receives them. Preserve Back/Home/Cancel, flood-limit handling, expiry messages, actionable validation errors and retry.
 
 A file reference/menu expires after one hour. Settings persist, but a PC restart interrupts active work: report interruption and offer resend/retry rather than claiming completion. One job runs at a time with up to five queued. Batch collection accepts up to 20 compatible files in arrival order; Undo removes the last item.
 
@@ -25,7 +25,7 @@ A file reference/menu expires after one hour. Settings persist, but a PC restart
 | Video | MP4, MKV, MOV, WebM, audio extraction, GIF; trim, mute, compress, thumbnail. Legacy inputs are subject to available decoders. |
 | Audio | MP3, M4A, WAV, FLAC, OGG, Opus, AAC, AIFF. Check the family-specific menu for available targets. |
 | Batch | Compatible files to a common format in a ZIP; merge PDFs; images to one PDF; ZIP originals. Preserve per-file output isolation. |
-| Video links | Supported public YouTube, Instagram and Facebook HTTPS URLs; return video in same chat. No playlists/live streams, login bypass, or guaranteed support for every link. |
+| Video links | Public YouTube, Instagram and Facebook HTTPS URLs; return an iPhone-friendly MP4 (H.264/AAC) in the same chat at **no more than 720p**. Portrait usually 720 x 1280; landscape 1280 x 720. Include measured file size and resolution in caption. No playlists/live streams, login bypass, or guaranteed support for every link. |
 
 ## Explain resize choices accurately
 

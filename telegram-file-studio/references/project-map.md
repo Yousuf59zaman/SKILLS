@@ -2,7 +2,7 @@
 
 ## Identity and environment
 
-Snapshot inspected on 2026-10-18; verify again before making changes.
+Snapshot initially inspected on 2026-10-18; feature and release evidence checked through 2026-10-20. Verify again before making changes. For current video-output behavior see [video-download-policy.md](video-download-policy.md).
 
 - Application: Usuf File Studio, same bot username `usufvideodwnlderbot`.
 - Authorized host observed: `Usuf-Desktop`, Windows; resolve the online device through the connector rather than hardcoding its UUID.
@@ -26,7 +26,7 @@ Snapshot inspected on 2026-10-18; verify again before making changes.
 | `setup.ps1`, `SETUP.cmd` | Resumable local-only credential entry and bootstrap; `-Reconfigure` is explicit, not the normal recovery path. |
 | `bootstrap.mjs`, `enable-startup.ps1`, `start-hidden.vbs` | One-time cloud-to-local migration, readiness verification and hidden Windows sign-in launcher. |
 | `check-status.mjs`, `check-status.ps1` | Existing live health report; output includes redacted log tail. Prefer this skill's inspector when sharing minimal diagnostics. |
-| `studio-v2/tests/` | Synthetic fixtures, converter/output tests, UI tests, extra and batch regression tests. |
+| `studio-v2/tests/` | Synthetic fixtures, converter/output tests, UI tests, extra and batch regression tests. Also includes `download-720p-regression.mjs`, `iphone-link-smoke.mjs`, `iphone-compatibility.mjs` and `instagram-access-test.mjs` for the 2026-10-20 download policy. |
 | `studio-v2/live-test.mjs` | Real Telegram upload/retrieval/resize/send test. Sends messages to owner and deletes its synthetic input message. Not read-only. |
 | `studio-v2/release.json`, `engine-versions.txt` | Dated test evidence, deployed source hashes, observed engine versions; not evergreen guarantees. |
 
