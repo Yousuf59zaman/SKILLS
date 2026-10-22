@@ -118,3 +118,9 @@ bulk cold-load, no new identity, no model until admitted):
   identity, canonical helper hash, baked composed target, and a fresh
   daemon-owned ack. Until the current outer reply finishes, the validated
   idle-only queue stays pending honestly — never forced.
+
+## Terminal popups are separate
+
+A terminal-window question about the per-minute retry task is not send
+diagnosis. Follow [terminal-visibility.md](terminal-visibility.md) instead;
+its console-free launcher state does not change these send bounds.

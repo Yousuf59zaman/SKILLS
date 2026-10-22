@@ -1,4 +1,4 @@
 interface:
   display_name: "OpenCode Sync"
-  short_description: "Sync OpenCode model/tool routing"
-  default_prompt: "Use $opencode-sync to repair OpenCode Go model routing for Codex and OpenClaw."
+  short_description: "Repair OpenCode Go auth and model/tool routing"
+  default_prompt: "Use $opencode-sync to recover OpenCode Go in CLI, Desktop, or Paseo, or repair the requested Codex/OpenClaw routing."

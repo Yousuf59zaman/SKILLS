@@ -1,11 +1,18 @@
 ---
 name: opencode-sync
-description: Repair and sync OpenCode Go routing for Codex Desktop/Relay AI and OpenClaw. Use when Yousuf asks to set up OpenCode Go, make GLM-5.2 the default model, use Qwen3.7 Plus for vision, fix Relay AI limited-tool Codex sessions, remove Relay AI routing from OpenClaw, sync OpenCode models across agents, or verify Browser/MCP/tool access after OpenCode changes.
+description: Repair OpenCode Go authentication and availability in OpenCode CLI, OpenCode Desktop, and Paseo, including expired API keys, 401 errors, CLI updates, and Console authorization. Also sync OpenCode Go model/tool routing for Codex Desktop/Relay AI and OpenClaw when requested.
 ---
 
 # OpenCode Sync
 
-Use this skill to keep Yousuf's OpenCode Go setup consistent across Codex Desktop/Relay AI and OpenClaw.
+Use this skill for direct OpenCode Go recovery and for requested routing changes across Codex Desktop/Relay AI and OpenClaw.
+
+## Choose the requested workflow
+
+- For an expired key, `401`, an active subscription that cannot reply, CLI updates/authorization, Paseo provider availability, or a Desktop-only failure, read [references/opencode-go-auth-recovery.md](references/opencode-go-auth-recovery.md). Start there instead of running the routing audit below.
+- For Codex/Relay or OpenClaw model/tool routing, use the existing script workflow below and [references/opencode-routing.md](references/opencode-routing.md).
+
+The bundled audit/apply script repairs routing; it does not perform Console sign-in or prove that an OpenCode Desktop composer can reply. Authentication recovery preserves the user's selected models and unrelated configurations. The default-model guidance below applies to requested routing changes.
 
 Core policy:
 

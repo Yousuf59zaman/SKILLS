@@ -63,7 +63,18 @@ function Get-TaskSummary([string]$TaskName, [string]$ExpectedScript, [string]$Ar
         $expectedArguments = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $ExpectedScript + '"'
         if ($TaskName -eq 'PaseoCodexSharedBackendStartup') { $expectedArguments += ' -KeepAlive' }
         $expectedArguments += $ArgumentsSuffix
-        $result.actionMatches = ($action.Path -eq $expectedExecutable -and $action.Arguments -eq $expectedArguments)
+        $legacyMatch = ($action.Path -eq $expectedExecutable -and $action.Arguments -eq $expectedArguments)
+        $result.actionMatches = $legacyMatch
+        if ($TaskName -eq 'PaseoCodexSendRollout') {
+            $launcherExe = Join-Path (Split-Path -Parent $ExpectedScript) 'SendSyncLauncher.exe'
+            $launcherMatch = ($action.Path -ceq $launcherExe -and ([string]$action.Arguments -eq '') -and $action.WorkingDirectory -ceq (Split-Path -Parent $ExpectedScript))
+            if ($launcherMatch) { $result.actionMatches = $true }
+        }
+        if ($TaskName -eq 'PaseoCodexCanonicalHistory') {
+            $launcherExe = Join-Path (Split-Path -Parent $ExpectedScript) 'CanonicalHistoryLauncher.exe'
+            $launcherMatch = ($action.Path -ceq $launcherExe -and ([string]$action.Arguments -eq '') -and $action.WorkingDirectory -ceq (Split-Path -Parent $ExpectedScript) -and [int]$task.Definition.Actions.Count -eq 1 -and [int]$action.Type -eq 0)
+            if ($launcherMatch) { $result.actionMatches = $true }
+        }
     } catch { }
     return [pscustomobject]$result
 }
@@ -354,6 +365,88 @@ elseif ($foundationsOk -and $canonical.active -and $selectedHistory.verified) { 
 elseif ($foundationsOk -and -not $blockingWarnings) { $readiness = 'pending_activation' }
 elseif ($catalog.status -eq 'waiting_for_Desktop') { $readiness = 'waiting_for_Desktop' }
 
+# FLAT-LAYOUT scoped assessment (minimal addition; global readiness above unchanged).
+# Aggregate-only: no mapping IDs, cwds, or workspace lists leave this script.
+# Authoritative roster: mapping.flatUnits (frozen original unit list, count>0
+# required); each rec.flat pair cross-checked against
+# mapping.projects[rec.nativePid].flat[normalized rec.backingCwd].
+$flatFlagOn = $false
+try {
+    $flatFlagDoc = Read-LocalJson (Join-Path $bridgePath 'catalog-flat-workspaces.json')
+    $flatFlagOn = ($null -ne $flatFlagDoc -and [bool]$flatFlagDoc.enabled -eq $true)
+} catch { $flatFlagOn = $false }
+$flatMappingDoc = Read-LocalJson (Join-Path $bridgePath 'catalog-map.private.json')
+$flatRosterUnits = 0
+$flatMatchedUnits = 0
+$flatMembershipProblems = 0
+$flatRegistryReadable = $false
+$flatUmbrellaAbsent = $null
+$flatStatusUnits = $null
+try { if ($null -ne $catalog) { $flatStatusUnits = $catalog.flatUnits } } catch { $flatStatusUnits = $null }
+try {
+    if ($flatFlagOn -and $null -ne $flatMappingDoc -and $null -ne $flatMappingDoc.flatUnits) {
+        $liveProjectsFlat = $null
+        $liveWorkspacesFlat = $null
+        try {
+            if ($null -ne $settings -and -not [string]::IsNullOrWhiteSpace([string]$settings.paseoHome)) {
+                $pjRaw = Get-Content -LiteralPath (Join-Path ([string]$settings.paseoHome) 'projects/projects.json') -Raw -Encoding UTF8
+                $wsRaw = Get-Content -LiteralPath (Join-Path ([string]$settings.paseoHome) 'projects/workspaces.json') -Raw -Encoding UTF8
+                $pjJson = $pjRaw.TrimStart([char]0xFEFF) | ConvertFrom-Json
+                $wsJson = $wsRaw.TrimStart([char]0xFEFF) | ConvertFrom-Json
+                if ($pjJson -is [array]) { $liveProjectsFlat = $pjJson }
+                elseif ($null -ne $pjJson.entries -and ($pjJson.entries -is [array])) { $liveProjectsFlat = $pjJson.entries }
+                elseif ($null -ne $pjJson.projects -and ($pjJson.projects -is [array])) { $liveProjectsFlat = $pjJson.projects }
+                elseif ($null -ne $pjJson) { $liveProjectsFlat = @($pjJson) }
+                if ($wsJson -is [array]) { $liveWorkspacesFlat = $wsJson }
+                elseif ($null -ne $wsJson.entries -and ($wsJson.entries -is [array])) { $liveWorkspacesFlat = $wsJson.entries }
+                elseif ($null -ne $wsJson.workspaces -and ($wsJson.workspaces -is [array])) { $liveWorkspacesFlat = $wsJson.workspaces }
+                elseif ($null -ne $wsJson) { $liveWorkspacesFlat = @($wsJson) }
+                $flatRegistryReadable = (($null -ne $liveProjectsFlat) -and ($null -ne $liveWorkspacesFlat))
+            }
+        } catch { $flatRegistryReadable = $false }
+        if ($flatRegistryReadable) {
+            foreach ($rp in $flatMappingDoc.flatUnits.PSObject.Properties) {
+                $rec = $rp.Value
+                if ($null -eq $rec -or [string]$rec.backingCwd -eq '' -or [string]$rec.nativePid -eq '') { $flatMembershipProblems++; continue }
+                $flatRosterUnits++
+                $pair = $rec.flat
+                if ($null -eq $pair -or [string]$pair.projectId -eq '' -or [string]$pair.workspaceId -eq '') { $flatMembershipProblems++; continue }
+                $xpair = $null
+                try {
+                    $backingKey = (([string]$rec.backingCwd -replace '\\','/').ToLowerInvariant())
+                    $projEntry = $flatMappingDoc.projects."$($rec.nativePid)"
+                    if ($null -ne $projEntry -and $null -ne $projEntry.flat) { $xpair = $projEntry.flat."$backingKey" }
+                } catch { $xpair = $null }
+                if ($null -eq $xpair -or [string]$xpair.projectId -cne [string]$pair.projectId -or [string]$xpair.workspaceId -cne [string]$pair.workspaceId) { $flatMembershipProblems++; continue }
+                $fp = @($liveProjectsFlat | Where-Object { [string]$_.projectId -ceq [string]$pair.projectId -and -not [bool]$_.archivedAt })
+                $fw = @($liveWorkspacesFlat | Where-Object { ([string]$_.workspaceId -ceq [string]$pair.workspaceId -or [string]$_.id -ceq [string]$pair.workspaceId) -and -not [bool]$_.archivedAt })
+                if ($fp.Count -eq 1 -and $fw.Count -eq 1 -and [string]$fw[0].projectId -ceq [string]$pair.projectId) { $flatMatchedUnits++ }
+                else { $flatMembershipProblems++ }
+            }
+            try {
+                $cidFlat = ''
+                try { $cidFlat = [string]$flatMappingDoc.containerProjectId } catch { }
+                $codexRootNorm = ((Join-Path $bridgePath 'Codex') -replace '\\','/').ToLowerInvariant()
+                $hitsFlat = @($liveProjectsFlat | Where-Object {
+                    (-not [bool]$_.archivedAt) -and (
+                        (([string]$_.projectId -ceq $cidFlat) -and $cidFlat -ne '') -or
+                        (([string]$_.projectRootPath -replace '\\','/').ToLowerInvariant() -ceq $codexRootNorm -and [string]$_.projectRootPath -ne '') -or
+                        (([string]$_.rootPath -replace '\\','/').ToLowerInvariant() -ceq $codexRootNorm -and [string]$_.rootPath -ne '')
+                    )
+                })
+                $flatUmbrellaAbsent = ($hitsFlat.Count -eq 0)
+            } catch { $flatUmbrellaAbsent = $null }
+        }
+    }
+} catch { $flatRegistryReadable = $false }
+$flatStatusOk = ($flatFlagOn -and $null -ne $catalog -and [string]$catalog.status -eq 'active' -and [bool]$catalog.flatLayout -eq $true -and $fresh -and $countsMatch -and $null -ne $catalog.deferred -and [int]$catalog.deferred -eq 0 -and [int]$catalog.chats -gt 0)
+$flatMappingRemoved = ($null -ne $flatMappingDoc -and [bool]$flatMappingDoc.umbrellaRemoved -eq $true)
+$flatStatusRemoved = ($null -ne $catalog -and [bool]$catalog.umbrellaRemoved -eq $true)
+$flatStatusUnitsOk = ($null -ne $flatStatusUnits -and [int]$flatStatusUnits -eq $flatRosterUnits)
+$flatStatusUnitsOut = $null
+if ($null -ne $flatStatusUnits) { $flatStatusUnitsOut = [int]$flatStatusUnits }
+$flatLayoutHealthy = ($flatStatusOk -and $flatMappingRemoved -and $flatStatusRemoved -and $flatRegistryReadable -and $flatRosterUnits -gt 0 -and $flatStatusUnitsOk -and $flatMatchedUnits -eq $flatRosterUnits -and $flatMembershipProblems -eq 0 -and $flatUmbrellaAbsent -eq $true)
+
 [ordered]@{
     inspectorVersion = 15
     readOnly = $true
@@ -367,6 +460,7 @@ elseif ($catalog.status -eq 'waiting_for_Desktop') { $readiness = 'waiting_for_D
     watcher = [ordered]@{ catalogEnabledMarker = [bool]$catalogEnabled; routingEnabledMarker = [bool]$routingEnabled; recordedWorkerRunning = $workerRunning; catalogTask = $catalogTask; backendStartupTask = $backendTask }
     canonical = [ordered]@{ installed = $canonical.installed; pendingRollout = $canonical.pendingRollout; daemonPart = $canonical.daemonPart; workerLiveCurrent = $canonical.workerLiveCurrent; generationFresh = $canonical.generationFresh; sendTargetExact = $canonical.sendTargetExact; ownerSourceMatches = $canonical.ownerSourceMatches; ownerProcessAlive = $canonical.ownerProcessAlive; active = [bool]$canonical.active; actorTask = $canonicalTask; rolloutStatus = [string]$canonicalRollout.status; verifyStatus = [string]$canonicalVerify.status }
     selectedHistory = $selectedHistory
+    flat = [ordered]@{ flagOn = [bool]$flatFlagOn; statusFlatLayout = [bool]$catalog.flatLayout; statusUmbrellaRemoved = [bool]$catalog.umbrellaRemoved; mappingUmbrellaRemoved = [bool]$flatMappingDoc.umbrellaRemoved; statusUnits = $flatStatusUnitsOut; rosterUnits = [int]$flatRosterUnits; matchedUnits = [int]$flatMatchedUnits; membershipProblems = [int]$flatMembershipProblems; registryReadable = [bool]$flatRegistryReadable; umbrellaAbsent = $flatUmbrellaAbsent; healthy = [bool]$flatLayoutHealthy; scope = 'Flat workspace layout only; out-of-scope native catalog/history failures stay honest and are not overridden by this field.' }
     hooks = [ordered]@{ importMarkerPresent = $hookImport; payloadMarkerPresent = $hookPayload; questionSyncMarkersPresent = $questionMarkers; sendProviderMarkersPresent = $sendMarkers; sendSessionMarkersPresent = $sendSessionMarkers; questionSync = [ordered]@{ installed = $questionSync.installed; fresh = [bool]$questionSyncFresh; packageVersion = [string]$questionSync.packageVersion; pendingRollout = [bool]$questionSync.pendingRollout; rollout = [ordered]@{ status = [string]$questionRollout.status; detail = [string]$questionRollout.detail }; rolloutTask = $questionRolloutTask }; sendSync = [ordered]@{ installed = $sendSync.installed; fresh = [bool]$sendSyncFresh; packageVersion = [string]$sendSync.packageVersion; pendingRollout = [bool]$sendSync.pendingRollout; rollout = [ordered]@{ status = [string]$sendRollout.status; detail = [string]$sendRollout.detail }; rolloutTask = $sendRolloutTask } }
     savedTargetChatVerification = [ordered]@{ currentSyncVerified = $savedLive.currentSyncVerified; liveUITestPassed = $savedLive.liveUITestPassed; currentGenerationMatches = ($null -ne $gateway -and $null -ne $savedLive.verifiedBackendGeneration -and $savedLive.verifiedBackendGeneration -eq $gateway.backend.generation); evidence = 'Saved status only; this inspector does not run live UI or history tests.' }
     warnings = @($warnings.ToArray())

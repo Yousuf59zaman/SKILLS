@@ -38,7 +38,16 @@ The watcher paces approximately every 10 seconds, woken early by filesystem even
 
 The verified catalog covers eligible project chats plus eligible standalone Recents chats. Archived threads and ineligible rows (non-Desktop origin, probe/background markers, missing `cwd`, missing folders) are not automatically included by this algorithm. Report those exclusion counts if the user asks why a count differs from the entire Codex history.
 
+For project/workspace creation in either direction, see [project-creation.md](project-creation.md) (complete for the creation-only scope). The catalog above covers existing mapped units plus confirmed bidirectional units only; the closed flat migration stays closed.
+
 ## Reconcile placement without taking every writer
+
+> LEGACY umbrella flow (flag off / pre-migration; removing the flag after
+> an active migration does NOT restore the umbrella — reversal needs a new
+> scoped review using private backups, never a blind remap or replay).
+> For the flat layout, see [workspace-layout.md](workspace-layout.md)
+> (applies only with the flat flag enabled and an active flat load
+> receipt).
 
 Create or find a Paseo project rooted at `<bridge>\Codex` and name it `Codex`. For each native project, collect distinct chat working directories. Use the project root for an empty project. Create a workspace under the container with `source:{kind:'directory',path:cwd,projectId:containerProjectId}`.
 
