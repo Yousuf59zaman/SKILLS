@@ -1,9 +1,9 @@
 ---
 name: codexsoft-context
-description: "Shared CodexSoft business/chatbot/website/Meta/portfolio context. Use when the task involves CodexSoft business, services, pricing, website, chatbot, Meta/Messenger/Instagram integration, knowledge/FAQs, portfolio showcases, professional experience, or brand/marketing copy. Do NOT use for unrelated coding, other clients, or general programming."
+description: "CODEXENCE Business Pro shared context entrypoint, formerly CodexSoft. Use for CODEXENCE business, professional services, website, enquiry backend, staging backup/security, chatbot, Meta/Messenger/Instagram, portfolio, pricing and marketing; always read the canonical shared skill and latest verified context before actions. Not for unrelated clients or coding."
 ---
 
-# CodexSoft Context (shared entrypoint)
+# CODEXENCE Business Pro Context (shared entrypoint)
 
 This agent reads the single shared skill — no separate copy is maintained here.
 
