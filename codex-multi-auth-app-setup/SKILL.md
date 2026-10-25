@@ -12,6 +12,7 @@ This skill now owns both desktop setup/capture-back and the former refresh guard
 - For legacy 2.2.x/2.3.x, read [legacy refresh guard](references/legacy-refresh-guard.md). Its retained script covers account switching, startup auto-sync and menu drift-sync. Default is check-only; explicit `--apply` is required.
 - For the recognized modern modular capture-back layout, use `scripts/apply-setup.mjs` below after checking patch anchors. Do not assume all newer versions are compatible merely because the version is larger. Never stack the old patch onto a modern package.
 - Keep the installed shared launcher byte-identical unless a launcher change is separately requested. Keep `codex-paseo-sync` as the owner of shared-backend recovery.
+- An org-settings / policy-read modal right after a Desktop update can result from an incompatible CLI override; check `codex-paseo-sync` [app-stability](../codex-paseo-sync/references/app-stability.md) alongside auth state before assuming the capture-back patch applies.
 - For merge verification run `node "<this-skill>/scripts/test-auth-merge.mjs"`; it uses synthetic fixtures, never live tokens or accounts. Unknown layouts must refuse without live mutation.
 
 An instruction merge does not run either installer, switch accounts, copy real auth to temp, upgrade packages, stop apps, or restart backends.
