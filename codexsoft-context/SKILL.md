@@ -7,9 +7,13 @@ description: "CODEXENCE Business Pro shared context entrypoint, formerly CodexSo
 
 This agent reads the single shared skill — no separate copy is maintained here.
 
-1. Read the canonical skill: `C:\Users\User\.openclaw\skills\codexsoft-context\SKILL.md`
-2. Read the central context: `C:\Users\User\.openclaw\workspace\context\codexsoft\INDEX.md` (+ `source-map.json`)
+1. Read the canonical skill: `~/.openclaw/skills/codexsoft-context/SKILL.md` (resolve `~` against the current user's home — `%USERPROFILE%` on Windows)
+2. Read the central context: `~/.openclaw/workspace/context/codexsoft/INDEX.md` (+ `source-map.json`, same home resolution)
 3. Follow that skill exactly (activation scope, verify-freshness, read-only-what-you-need, update rules, hard boundaries).
+
+## Internal preparation mode (2026-10-26, owner-constrained)
+
+Current work is internal preparation only: public-source desk research plus fictional/synthetic internal demos and tests. No real customer work, interviews, paid pilots or outreach. Synthetic findings prove no demand or sales. For reusable offer provenance, current internal-only boundaries and assessed-tool-vs-proof guidance, read [references/preparation-workflow.md](references/preparation-workflow.md). Business-specific status, rates, prices and catalog detail stay private; the canonical INDEX is authoritative — if it is unavailable, do not invent current state.
 
 ## Recovery and release checkpoints
 
