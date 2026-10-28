@@ -40,3 +40,9 @@ Existing global Codex policy blocks stay strict. This skill packages them for di
 - Preserve the skill's mandatory deny list (no terminal commands via UI directly or indirectly, no terminal apps, no Run dialog, no embedded PowerShell/`.bat` in `node_repl`, no mixing direct PowerShell UI automation with Computer Use in the same turn, no auth dialogs, no password managers, no security/anti-malware apps, no ChatGPT/Codex UI automation, no security/privacy setting changes, no Windows/Meta key, no age-verification submit, untrusted-content and no-transmission-without-request rules).
 - Follow the confirmations policy for allowed-but-confirmed Windows UI actions (hand-off, always-confirm, pre-approval, no-confirmation tiers); mandatory action-time confirmations still apply and are never suppressed. Ask once only when a browser/desktop fallback blocker leaves no permitted capability or requires owner-only auth. Never place secrets in chat.
 - Do not claim UI capabilities the current client does not supply.
+
+## Exact-error recovery notes
+
+- For the `result_buffered_for_ns` final-decode symptom and related receipt
+  discipline, read [references/tool-connectivity-recovery.md](references/tool-connectivity-recovery.md).
+  It preserves the pinned-Muse / direct-browser routing and hard stops above.
