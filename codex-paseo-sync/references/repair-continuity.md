@@ -1,3 +1,21 @@
+# Codex/Paseo configuration parse incident — 2026-10-29 (separate from account switching)
+
+After user-reported working sessions and account-switch tests, Paseo reported invalid workspace requirements at `config.toml:251:23`, then Codex Desktop displayed a duplicate-key startup dialog. Two files changed at the same 2026-10-29 07:55:53 UTC instant: the live Codex config and legacy Computer Use approval file. The installed Windows Desktop 26.1023.6123.0 approval writer emits `[computer_use.windows.always_allowed_app_ids]` with quoted `true` values, while the previous config already had an `always_allowed_app_ids` array; their coexistence invalidates TOML. The concurrent timestamps and installed source behavior support an approval-migration conflict, not proof that a switch caused it.
+
+A bounded, backed-up repair converted only the prior two approved IDs to the installed writer's Boolean-table representation, without granting new approvals or changing any other parsed config values. Full TOML parsing, native Codex CLI `features list` (exit 0), two isolated approval-writer replacement simulations, and three backend/port stability observations passed. Both app windows existed, but Desktop backend initialization/rendered GUI and live delivery were not proved; no account switch, shared-backend stop, chat replay, auth edit or reboot was used for this repair. Re-inspect any updated Desktop writer rather than assuming this version-specific format is universal. **Troubleshooting route:** [app-stability.md](app-stability.md), section "Windows Computer Use approval / duplicate TOML key". Durable local sanitized notes: `%USERPROFILE%\.codex\tmp\codex-ghost-prevention-20261029\CONFIG-COMPAT-FOLLOWUP-20261029.md`. This separate incident does not reopen the stopped 2026-10-19 broad repair.
+
+---
+
+# Live-verification follow-up — 2026-10-29 (bounded reported observations, not a full pass)
+
+- Deployed shutdown helper now binds the original generation/IDs/births across the canonical proof; observed drift refuses before further mutation. Release requires canonical stable-free plus positive old-owner death; a listener-query error never reads as empty success. The canonical classifier is unchanged.
+- Isolated suites (mocks, not live): shutdown suite and closed-Paseo direct-switch suite EACH report 34 behavior checks per engine (Windows PowerShell + PowerShell 7); static checks 6/6 per engine where reported. No live account switch claimed from these fixtures.
+- Later user-supplied 6 manual switches (accounts masked, initial account uncertain, incl. Paseo-GUI-closed / both-GUIs-closed / closed-then-reopened variations) + independent-agent reports of 3 resulting owned-ready runtimes: both frontends initialized, service/live generation match, no observed ghost and no reboot during captured checks; closed-Paseo reopen and retained-Paseo-process reconnect supported within those windows.
+- NOT 6/6 verified: every intermediate transition is not independently captured; exact requested-account/runtime mapping, including the final account, exit duration, single-boot proof, GUI content/rendering, message delivery/replay remain unverified. No permanent kernel cure and no Oct28 cause claim; no never-reboot guarantee. Last-reported condition only at the reported observation times.
+- Local pointers only via `%USERPROFILE%` paths: `%USERPROFILE%\.codex\tmp\codex-ghost-prevention-20261029\LIVE-VERIFICATION-FOLLOWUP-20261029.md` and `%USERPROFILE%\.codex\tmp\codex-ghost-prevention-20261029\CURRENT-CHECKPOINT.md` (linked deployment checkpoint). No raw process IDs, account numbers, emails, tokens, logs, transcripts, or copied product source in this skill. All older sections below preserved verbatim.
+
+---
+
 # Installed-repair scope checkpoint — 2026-10-28 (observed, not readiness proof)
 
 Dated observation from read-only verification (`%USERPROFILE%\.codex\tmp\paseo-sync-fix-20261028\` — `CURRENT-CHECKPOINT.md`, `verification-final/`, `state/parent-proof/`): 17 projects / 165 chats verified 0 duplicates 0 deferred, backend generation 1, status syncing deletion-pending. This is an observation, not full UI/history readiness and not a health guarantee.

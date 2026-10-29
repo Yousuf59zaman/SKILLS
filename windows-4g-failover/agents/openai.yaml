@@ -1,0 +1,3 @@
+interface:
+  display_name: "Windows 4G Failover"
+  short_description: "Safely troubleshoot and document Windows broadband-to-4G backup"
