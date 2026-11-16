@@ -18,7 +18,7 @@ Use this skill for OrangeBD project tasks. Apply only the rules that fit the cur
    - If an API response only partially matches the UI, explain the mismatch before coding.
    - If API returns `200` but data is semantically suspicious, such as repeated `Unknown`, all-zero rows, missing IDs, or missing pagination meta, report the exact response problem before changing frontend mapping.
    - If an API returns a backend stack trace or SQL/server error, do not patch the frontend around it; report the exact backend issue and integrate only after a valid response is available.
-7. Verify with the narrowest useful tests/build/browser checks, then do a quick developer review and QA review before final delivery.
+7. Every issue-fix request includes fixing the issue and testing that related existing behavior does not break, even when the user does not repeat this requirement. Follow the bug-fix regression guidance in `qa-delivery.md`, use the narrowest useful tests/build/browser checks, then do a quick developer review and QA review before final delivery.
 8. Report what changed, what was verified, and which OrangeBD rules were followed.
 
 ## JavaScript and TypeScript

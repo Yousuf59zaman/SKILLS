@@ -62,6 +62,17 @@ browser check for UI/layout
 API/manual check for interactive flows when credentials/server available
 ```
 
+## Bug Fixes Include Regression Verification
+
+Interpret every request to fix an issue as: "fix the issue and, most importantly, test that other kono kisu jatey break na hoy." The user does not need to repeat the testing requirement.
+
+- Confirm the reported failure and identify related flows and shared consumers affected by the change. Keep the fix scoped and preserve unrelated user changes.
+- Verify the corrected behavior and those existing flows. Include success, error, loading cleanup, retry, duplicate submission, keyboard interaction, or auth behavior when relevant to the fix.
+- Use the project's existing checks plus appropriate behavioral verification. A successful build alone does not prove that an interactive flow works. Use isolated or controlled tests when live persistence is unnecessary; testing does not authorize unrelated production writes.
+- Review the final diff and report the checks actually run, their results, and anything unverified with the reason, including missing authenticated browser/backend access. Do not claim that nothing can break beyond the evidence obtained.
+
+Scale verification to the affected behavior. Do not add unrelated refactors or permanent trivial tests just to satisfy this requirement.
+
 ## Frontend QA Checklist
 
 For UI changes check:

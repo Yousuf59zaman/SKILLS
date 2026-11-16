@@ -22,7 +22,7 @@ This skill is mandatory for OrangeBD project work. Treat it as the strict operat
 7. For admin list/table work, backend owns production pagination, search, filter, sort, and per-page behavior.
 8. For Nuxt work, guard browser-only logic with `import.meta.client`, `onMounted`, `.client` plugins, or `ClientOnly`.
 9. Never patch frontend around backend stack traces, broken SQL/server errors, missing IDs, all-zero data, repeated `Unknown`, or missing pagination meta. Report the exact backend/API issue.
-10. Verify with the narrowest useful build/typecheck/test/browser check. If a check cannot run, say exactly why.
+10. Treat every request to fix an issue as: fix the issue and, most importantly, test that related existing behavior does not break. Verify both the fix and affected flows using the narrowest useful build/typecheck/test/browser checks; follow the bug-fix regression guidance in `references/qa-delivery.md`. If a check cannot run, say exactly why and what remains unverified.
 11. For React/Next.js, preserve Server Components by default, add `"use client"` only at interactive boundaries, and keep private environment/session logic out of the client module graph.
 12. For the Accessimate React/Next.js pattern, keep guest/admin/citizen access checks filewise in their route-group `layout.tsx` files. Do not introduce centralized `src/proxy.ts` or `middleware.ts` unless the user explicitly changes this architecture.
 
