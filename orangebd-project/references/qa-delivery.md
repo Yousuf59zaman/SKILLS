@@ -73,6 +73,16 @@ Interpret every request to fix an issue as: "fix the issue and, most importantly
 
 Scale verification to the affected behavior. Do not add unrelated refactors or permanent trivial tests just to satisfy this requirement.
 
+## Dedicated Widget/Component Test Pages
+
+When the main page cannot adequately exercise a widget/component or reproduce a reported scenario, build a dedicated realistic local test page. Use this flow: dedicated page -> reproduce -> fix -> regression checks -> main/real-site verification.
+
+- Load the same actual production widget/component code, build, or embed used by the site. Create realistic host markup and interactions; do not substitute a copied widget implementation, fabricate production API responses, or weaken the fixture to hide a failure.
+- Keep an explicit feature-specific test matrix. Cover applicable normal, edge, error and loading cases; keyboard/focus and pointer interaction; ON/OFF, reset, reload and cross-page persistence; dynamic content/SPA navigation; representative viewport widths; and interaction with related features. Record the cases actually checked rather than claiming all possible cases are covered.
+- Perform manual checks in a visible real browser through the currently authorized browser workflow. Verify observable focus, state, scrolling, layout and relevant console/network behavior; automated checks complement these observations.
+- Fix confirmed failures and follow the regression-verification guidance above, including affected existing flows. Keep meaningful permanent regression tests and any fixtures they require in version control. Keep only clearly temporary QA/demo pages local or Git-ignored.
+- Finish by checking the main page and representative real host pages where the feature runs. A dedicated-page pass alone does not establish real-site integration. Report any unavailable browser, viewport or real-site checks and their reasons instead of treating them as passes.
+
 ## Frontend QA Checklist
 
 For UI changes check:
