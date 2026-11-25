@@ -56,10 +56,12 @@ What it does:
   - OpenCode: `%USERPROFILE%\.config\opencode\skills`
 - Copies missing skills on `--apply`.
 - Replaces differing same-name skills with the newest recursive folder version, after backup.
+- **Codex-only exclusion (durable, exact normalized-name): `codex-execution-policy` lives ONLY in the Codex root (`%USERPROFILE%\.codex\skills\codex-execution-policy`). The sync script (`sync-agent-skills.mjs`, via direct calls and via `agent-sync.mjs skills`/`all`) never copies it to Claude/Antigravity/VSCode/OpenCode, never copies it to GitHub, never pulls it from GitHub, never overwrites the Codex canonical from another root, and never treats a stray non-Codex/GitHub copy as an upstream source. Matching is exact on the normalized id so it is case-insensitive and never fuzzy. Stray copies are reported as `excludedCodexOnly` and left in place for manual removal; all other skills sync normally.**
 - Blocks replacement when different versions have near-tied mtimes, so a risky "newest" choice is not guessed.
 - On `--apply`, preserves every near-tied differing candidate in a conflict bundle without changing the active skill folders.
 - Always compares the local skill union with the configured GitHub Skills repo during normal dry-run/apply, unless Yousuf explicitly asks for local-only and `--no-github-check` is used.
 - Can include GitHub as a sync/publish target with `--push-github`, after Yousuf chooses the GitHub action.
+- Codex-only skills (`codex-execution-policy`) are excluded from the GitHub compare counts/decision and from GitHub merge/pull/push; a stale GitHub copy is never reimported and the Codex copy is never published by sync.
 - Avoids Antigravity extension/vendor skill folders by default.
 
 Useful commands:
@@ -232,6 +234,7 @@ Read [sync safety and system-cache boundaries](references/sync-safety.md) before
 - Do not copy into `.antigravity\extensions\...` vendor folders unless Yousuf explicitly provides that path.
 - Do not overwrite same-name MCP conflicts without manual inspection and user confirmation.
 - Browser/screenshot MCP servers (e.g. `browsermcp`) originating from OpenCode are excluded from Codex, Antigravity, and VSCode to avoid image-input errors on models that do not accept image content that way.
+- Codex-only skill `codex-execution-policy` is never synced by agent-sync (see Skills sync). If you find it outside `%USERPROFILE%\.codex\skills`, back it up outside the active roots and delete only that non-Codex copy; never delete the Codex canonical, never follow a junction/symlink to delete, and never run a blanket sync to "fix" it.
 - MCP sync copies definitions only; login/session state still belongs to each MCP/service.
 - CLI sync shares PATH access only; it does not install missing CLIs.
 - After MCP/CLI apply, tell Yousuf to reload/restart Antigravity, VSCode, and OpenCode if he wants them to notice new servers/PATH immediately.

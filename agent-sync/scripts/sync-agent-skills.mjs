@@ -4,7 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { assertSafeSkillApply, assertSafeGitHooks } from './sync-safety.mjs';
+import { assertSafeSkillApply, assertSafeGitHooks, isCodexOnlySkillId, isCodexOnlyCanonicalRoot, CODEX_ONLY_SKILL_IDS } from './sync-safety.mjs';
 
 const HOME = os.homedir();
 const WORKSPACE = path.join(HOME, '.openclaw', 'workspace');
@@ -574,6 +574,42 @@ function inspectGithubDecision(opts) {
     }
   }
 
+  // Codex-only exclusion (durable, exact normalized-name): these ids are never
+  // distributed, reimported, or used as an upstream source. Only the Codex root
+  // copy is canonical. Stray copies in other local roots or GitHub are reported
+  // but excluded from union selection, diff counts, decisions, and all writes.
+  const excludedCodexOnlySkills = [];
+  for (const id of [...localPresentById.keys()]) {
+    if (!isCodexOnlySkillId(id)) continue;
+    const present = localPresentById.get(id) || [];
+    const githubEntry = githubMap.get(id) || null;
+    excludedCodexOnlySkills.push({
+      id,
+      canonicalRoot: 'codex',
+      canonicalPresent: present.some(e => isCodexOnlyCanonicalRoot(e.root)),
+      presentRoots: present.map(e => e.root).sort(),
+      githubPresent: Boolean(githubEntry),
+      note: 'Codex-only skill: excluded from union, GitHub compare, and all sync writes. Only the Codex root copy is canonical.',
+    });
+    localPresentById.delete(id);
+    githubMap.delete(id);
+  }
+  for (const id of [...githubMap.keys()]) {
+    if (!isCodexOnlySkillId(id) || excludedCodexOnlySkills.some(e => e.id === id)) continue;
+    excludedCodexOnlySkills.push({
+      id,
+      canonicalRoot: 'codex',
+      canonicalPresent: false,
+      presentRoots: [],
+      githubPresent: true,
+      note: 'Codex-only skill: excluded from union, GitHub compare, and all sync writes. Only the Codex root copy is canonical.',
+    });
+    githubMap.delete(id);
+  }
+  for (const id of [...localPresentById.keys()]) {
+    if (isCodexOnlySkillId(id)) localPresentById.delete(id);
+  }
+
   const localUnionMap = new Map();
   const localAmbiguous = [];
   for (const [id, entries] of localPresentById.entries()) {
@@ -669,6 +705,8 @@ function inspectGithubDecision(opts) {
     onlyGithubSkills: onlyGithub,
     differingSkills: differing,
     ambiguousSkills: ambiguous,
+    excludedCodexOnlySkills,
+    excludedCodexOnlyCount: excludedCodexOnlySkills.length,
     requiresUserDecision,
     recommendedActions,
     prompt: requiresUserDecision
@@ -697,6 +735,9 @@ function printGithubDecision(githubSync) {
   if (Number.isFinite(decision.githubSkillCount)) {
     console.log(`  local union: ${decision.localUnionSkillCount}, github: ${decision.githubSkillCount}`);
     console.log(`  only local: ${decision.onlyLocalCount}, only github: ${decision.onlyGithubCount}, differing: ${decision.differingCount}, ambiguous: ${decision.ambiguousCount}`);
+  }
+  if (decision.excludedCodexOnlyCount > 0) {
+    console.log(`  excluded Codex-only: ${decision.excludedCodexOnlyCount} (${(decision.excludedCodexOnlySkills || []).map(e => e.id).join(', ')}) - only Codex root is canonical, never synced`);
   }
   console.log(`  decision required: ${decision.requiresUserDecision ? 'yes' : 'no'}`);
   for (const action of (decision.recommendedActions || []).slice(0, 8)) console.log(`  - ${action}`);
@@ -763,6 +804,17 @@ function syncGithubFromSource(opts) {
   const maps = Object.fromEntries(allRoots.map(r => [r.name, buildCanonicalMap(inventories[r.name])]));
   const allIds = new Set();
   for (const map of Object.values(maps)) for (const id of map.keys()) allIds.add(id);
+
+  // Codex-only exclusion for GitHub merge/publish: never treat a stray non-Codex
+  // or GitHub copy as an upstream source, never copy Codex-only into GitHub or
+  // into non-Codex roots, and never overwrite the Codex canonical from GitHub.
+  const excludedCodexOnlyGithub = [];
+  for (const id of [...allIds]) {
+    if (!isCodexOnlySkillId(id)) continue;
+    const presentRoots = allRoots.filter(r => maps[r.name].has(id)).map(r => r.name).sort();
+    excludedCodexOnlyGithub.push({ id, presentRoots, note: 'Codex-only skill excluded from GitHub merge/publish; only Codex root is canonical.' });
+    allIds.delete(id);
+  }
 
   const planned = [];
   const blocked = [];
@@ -916,6 +968,8 @@ function syncGithubFromSource(opts) {
       branch: branchInfo.branch,
       baseBranch: branchInfo.baseBranch || null,
       message: 'GitHub repo and local roots already matched after pull/merge; nothing to commit.',
+      excludedCodexOnlySkills: excludedCodexOnlyGithub,
+      excludedCodexOnlyCount: excludedCodexOnlyGithub.length,
     };
   }
 
@@ -957,6 +1011,8 @@ function syncGithubFromSource(opts) {
     branchMode: branchInfo.mode,
     branch: branchInfo.branch,
     baseBranch: branchInfo.baseBranch || null,
+    excludedCodexOnlySkills: excludedCodexOnlyGithub,
+    excludedCodexOnlyCount: excludedCodexOnlyGithub.length,
   };
 }
 
@@ -997,6 +1053,25 @@ function main() {
     }
   }
 
+  // Codex-only exclusion (durable, exact normalized-name): codex-execution-policy
+  // lives ONLY in the Codex root. It is removed from the union set so it is never
+  // selected as an upstream source from a stray non-Codex copy, never copied to
+  // non-Codex roots, and never replaced from another root. Other skills sync normally.
+  const excludedCodexOnlySkills = [];
+  for (const id of [...allIds]) {
+    if (!isCodexOnlySkillId(id)) continue;
+    const presentEntries = byIdAllEntries.get(id) || [];
+    const presentRoots = presentEntries.map(e => e.root).sort();
+    excludedCodexOnlySkills.push({
+      id,
+      canonicalRoot: 'codex',
+      canonicalPresent: presentRoots.some(r => isCodexOnlyCanonicalRoot(r)),
+      presentRoots,
+      note: 'Codex-only skill: excluded from union sync. Only the Codex root copy is canonical; stray non-Codex copies must be removed manually, never synced.',
+    });
+    allIds.delete(id);
+  }
+
   const presentInAll = [...allIds].filter(id => roots.every(r => canonicalByRoot[r.name].has(id))).sort();
   const identicalCommon = presentInAll.filter(id => new Set(roots.map(r => canonicalByRoot[r.name].get(id).hash)).size === 1).sort();
   const differingCommon = presentInAll.filter(id => new Set(roots.map(r => canonicalByRoot[r.name].get(id).hash)).size > 1).sort();
@@ -1009,6 +1084,7 @@ function main() {
   const operations = [];
   const conflicts = [];
   for (const id of [...allIds].sort()) {
+    if (isCodexOnlySkillId(id)) continue; // defense-in-depth: never synthesize ops for Codex-only ids
     const presentRoots = roots.filter(r => canonicalByRoot[r.name].has(id));
     const presentEntries = presentRoots.map(r => ({ root: r.name, ...canonicalByRoot[r.name].get(id) }));
     const selected = opts.contentSync ? selectLatest(presentEntries, opts) : { latest: pickCanonical(presentEntries), ambiguous: [] };
@@ -1181,7 +1257,10 @@ function main() {
     conflicts,
     applied,
     githubSync,
-    note: opts.apply ? 'apply complete; missing skills copied and outdated differing skills replaced from latest version with backups' : 'dry-run only; pass --apply to copy missing skills and replace outdated differing skills',
+    excludedCodexOnlySkills,
+    excludedCodexOnlyCount: excludedCodexOnlySkills.length,
+    codexOnlySkillIds: [...CODEX_ONLY_SKILL_IDS],
+    note: opts.apply ? 'apply complete; missing skills copied and outdated differing skills replaced from latest version with backups (Codex-only skills excluded)' : 'dry-run only; pass --apply to copy missing skills and replace outdated differing skills (Codex-only skills excluded)',
   };
   if (githubSync?.failed) process.exitCode = 1;
 
@@ -1199,6 +1278,9 @@ function main() {
   console.log(`Identical common in all roots: ${result.identicalCommonCount}`);
   console.log(`Present in all but content differs: ${result.differingCommonCount}${result.differingCommonCount ? ` (${result.differingCommonSkills.join(', ')})` : ''}`);
   console.log(`Union total: ${result.unionSkillCount}`);
+  if (result.excludedCodexOnlyCount > 0) {
+    console.log(`Excluded Codex-only (never synced, Codex root canonical): ${result.excludedCodexOnlySkills.map(e => `${e.id} [${e.presentRoots.join(', ')}]`).join('; ')}`);
+  }
   for (const [name, ids] of Object.entries(uniqueByRoot)) {
     console.log(`Unique only in ${name}: ${ids.length}${ids.length ? ` (${ids.join(', ')})` : ''}`);
   }

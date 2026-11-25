@@ -14,6 +14,10 @@ The alias map in the sibling skill-manager/references/skill-aliases.json records
 
 Do not synchronize .system or .codex-system-skills.marker across agents. Codex owns its embedded skill cache and marker; the marker fingerprints the binary's embedded bundle, not the current folder contents. Do not fabricate a fingerprint or run Codex against another agent's home to regenerate it: the installer may replace that entire .system directory. Archive a mistakenly copied marker outside active roots after backup; preserve all actual system skill files.
 
+## Codex-only skills
+
+`codex-execution-policy` (exact normalized-name match, case-insensitive) lives ONLY in the Codex root. `scripts/sync-agent-skills.mjs` excludes it from union selection, apply writes, GitHub compare/decision, and GitHub merge/pull/push; a stray non-Codex or GitHub copy is reported as excluded and is never used as an upstream source. Helpers live in `scripts/sync-safety.mjs` (`isCodexOnlySkillId`, `isCodexOnlyCanonicalRoot`). Remove stray non-Codex copies only by backing them up outside active roots and deleting the resolved non-Codex directory; never delete the Codex canonical and never follow a junction/symlink to delete. All other skills sync normally.
+
 ## Verification
 
 Run node scripts/test-sync-safety.mjs. Run the existing skill-manager router/catalog and synthetic auth tests after organization changes. Verify hashes, absence of retired entrypoints, and that unrelated files and Git staged changes were preserved. Test legacy compatibility scripts only with disposable homes or read-only invocation. Do not test this repair by executing live account switches or restarting services.

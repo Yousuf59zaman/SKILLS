@@ -4,6 +4,18 @@ import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 
 const ownAliases=fileURLToPath(new URL('../../skill-manager/references/skill-aliases.json',import.meta.url));
+// Codex-only skills: exact normalized-name exclusion. These skill ids live ONLY in
+// the Codex root and must never be distributed, reimported, or used as an upstream
+// source by agent-sync (union source/target, apply, or GitHub merge/pull/push).
+// Matching is exact on the normalized id (lowercase, non-alnum -> '-'), so it is
+// inherently case-insensitive and never fuzzy-matched.
+export const CODEX_ONLY_SKILL_IDS=new Set(['codex-execution-policy']);
+export const CODEX_ONLY_CANONICAL_ROOT='codex';
+export function normalizeCodexOnlyId(name){
+ return String(name||'').trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').replace(/-+/g,'-');
+}
+export function isCodexOnlySkillId(id){return CODEX_ONLY_SKILL_IDS.has(normalizeCodexOnlyId(id));}
+export function isCodexOnlyCanonicalRoot(name){return String(name||'').toLowerCase()===CODEX_ONLY_CANONICAL_ROOT;}
 export function readAliases(file){
  const aliases=JSON.parse(fs.readFileSync(file,'utf8'));
  if(!aliases||Array.isArray(aliases)||typeof aliases!=='object')throw Error('Invalid skill alias map');

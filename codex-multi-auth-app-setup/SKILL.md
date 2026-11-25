@@ -147,16 +147,15 @@ Rules for this mode:
   design (bounded cancel, visible notice, no replay) and proceeds. Never
   force-kill the backend mid-turn EXCEPT through this launcher, which owns
   the exact supervisor/native/Desktop identities it stops.
-- `The shared backend repeatedly failed; inspect status.json` means the
-  supervisor (`service.mjs`) exhausted its restart budget. Check
-  `~/.paseo/codex-shared-bridge/status.json` (`backend.state: failed`) and
-  `backend-error.private.log`. The usual cause is a stale `LISTENING` socket on
-  port `19457` whose owner PID no longer exists (`netstat -ano | findstr 19457`
-  vs `tasklist`): `Ensure-Backend.ps1` then refuses to start a replacement
-  (`A local shared port is occupied`). That ghost socket only clears with a
-  Windows reboot. After reboot the `PaseoCodexSharedBackendStartup` task brings
-  the backend back; then run `codex-app` to reconnect Desktop + Paseo on the
-  newly switched account.
+- Treat a failed shared-backend state as a request for current evidence: it can
+  reflect an exhausted crash budget or a refused ownership, release or readiness
+  check. A positively dead recorded owner with a remaining `LISTENING` socket
+  does not establish a kernel cause or prove that reboot is the only cure.
+  The reviewed recovery uses bounded, read-only settlement and exact identity
+  checks; unresolved ownership or release stays closed. Read local status and
+  the current settlement and activation evidence in
+  `C:\Users\User\.codex\skills\codex-paseo-sync\references\native-transition-settlement-20261030.md`
+  before retrying. Never print private logs or change the frozen ports.
 - Do NOT change the native port (`19457`) or gateway port (`19458`) to dodge a
   ghost socket — the ports are hardcoded across `service.mjs`,
   `Restart-Idle-Backend.ps1`, and the Desktop launch route.
@@ -184,13 +183,19 @@ copy): every stop/switch/boot path first proves the state of frozen ports
 `19457` (native) / `19458` (gateway) as `free`, `owned-live`,
 `ghost-reboot-required`, `foreign-refuse`, or `unknown-refuse`.
 
-- A stable `LISTENING` socket whose recorded owner is positively dead
-  (true process-not-found proven twice) is a kernel ghost: the tools
-  report exactly `ghost socket — reboot required` BEFORE any
-  cancel/Desktop-stop/auth/boot mutation, and only a Windows reboot
-  clears it — never a port dodge, broad kill, or Winsock/firewall change.
-  Foreign listeners and unverifiable (unknown/access-denied) states
-  refuse with zero mutations. No ghost is promised clearable by command.
+- A `LISTENING` socket can outlive a positively dead recorded owner and later
+  release. Treat the historical `ghost-reboot-required` label as a refusal
+  category, not a kernel diagnosis or a reboot mandate. Use the reviewed
+  bounded settlement guard, which checks the applicable retired owners,
+  unchanged generation/record and any surviving gateway identity. For release,
+  a retired owner that is still live, or foreign, reused, unknown or unreadable
+  ownership, refuses. A known dead-owner listener that returns resets the
+  sampled-free interval. The 12-second quiet interval within a 90-second
+  polling budget is not a reservation or a guarantee against later
+  reappearance; replacement ownership and readiness must also be proved.
+  A timeout remains a refusal without assuming reboot is the only cure.
+  Preserve the ownership, mutex and fence checks. Never dodge ports, kill
+  unrelated processes or change Winsock/firewall settings.
 - `codex-stop-all` (on PATH; same implementation as `codex-app
   -StopOnly`) stops ONLY the `OpenAI.Codex` MSIX Desktop family plus the
   owned shared supervisor+native, verifies BOTH frozen ports released,

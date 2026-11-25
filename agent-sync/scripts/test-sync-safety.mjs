@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
-import {readAliases,assertSafeSkillApply,assertSafeGitHooks} from './sync-safety.mjs';
+import {readAliases,assertSafeSkillApply,assertSafeGitHooks,isCodexOnlySkillId,isCodexOnlyCanonicalRoot,normalizeCodexOnlyId} from './sync-safety.mjs';
 const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'skill-sync-safe-'));
 const root=path.join(tmp,'skills');fs.mkdirSync(root);
 const aliases=path.join(tmp,'aliases.json');fs.writeFileSync(aliases,JSON.stringify({'skill-vault':'skill-manager'}));
@@ -25,4 +25,7 @@ test('ordinary hooks are preserved and allowed',()=>{fs.writeFileSync(hook,'#!/b
 test('known legacy auto-sync hook blocks checkout',()=>{fs.writeFileSync(hook,'#!/bin/sh\npowershell .github/sync-skills.ps1\n');assert.throws(()=>assertSafeGitHooks(repo,['checkout']),/Legacy automatic/);});
 test('non-mutating git status remains available',()=>assert.doesNotThrow(()=>assertSafeGitHooks(repo,['status'])));
 test('relative configured hook directory is checked',()=>{const p=path.join(repo,'custom-hooks');fs.mkdirSync(p);fs.writeFileSync(path.join(p,'post-commit'),'sync-skills.ps1');git('config','core.hooksPath','custom-hooks');assert.throws(()=>assertSafeGitHooks(repo,['commit']),/Legacy automatic/);});
+test('codex-only exclusion matches exact normalized name case-insensitively',()=>{assert.equal(isCodexOnlySkillId('codex-execution-policy'),true);assert.equal(isCodexOnlySkillId('Codex-Execution-Policy'),true);assert.equal(isCodexOnlySkillId('CODEX_EXECUTION_POLICY'),true);assert.equal(normalizeCodexOnlyId('Codex Execution Policy'),'codex-execution-policy');});
+test('codex-only exclusion does not match other skills',()=>{assert.equal(isCodexOnlySkillId('agent-sync'),false);assert.equal(isCodexOnlySkillId('codex-execution-policy-extra'),false);assert.equal(isCodexOnlySkillId('codex'),false);assert.equal(isCodexOnlySkillId(''),false);});
+test('only the codex root name is canonical for codex-only skills',()=>{assert.equal(isCodexOnlyCanonicalRoot('codex'),true);assert.equal(isCodexOnlyCanonicalRoot('Codex'),true);assert.equal(isCodexOnlyCanonicalRoot('claude'),false);assert.equal(isCodexOnlyCanonicalRoot('github'),false);assert.equal(isCodexOnlyCanonicalRoot('opencode'),false);});
 test.after(()=>fs.rmSync(tmp,{recursive:true,force:true}));

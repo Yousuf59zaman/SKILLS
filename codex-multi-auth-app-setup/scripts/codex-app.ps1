@@ -1,5 +1,9 @@
 #!/usr/bin/env pwsh
-# SHARED-CANONICAL-REVISION=9
+# SHARED-CANONICAL-REVISION=15
+# Reviewed recurrent shared-port release protection. Uses bounded
+# read-only settlement, preserves exact ownership and existing locks,
+# and refuses missing or mismatched helper modules. This source revision
+# is identified by its exact hash in the deployment evidence.
 # codex-app.ps1 — Manual launcher for the NEW ChatGPT desktop app (the one
 # formerly branded "Codex") and the shared Paseo backend.
 #
@@ -266,7 +270,7 @@ function New-ProductionSeams {
         }.GetNewClosure()
         ListProcesses = { Get-CimInstance Win32_Process }.GetNewClosure()
         GetProcessById = { param($Id) Get-CimInstance Win32_Process -Filter ('ProcessId='+[int]$Id) }.GetNewClosure()
-        StopProc = { param($Id) Stop-Process -Id ([int]$Id) -ErrorAction SilentlyContinue }.GetNewClosure()
+        StopProc = { param($Id) Stop-Process -Id ([int]$Id) -Force -ErrorAction Stop }.GetNewClosure()
         # Frozen-port preflight queries (module verdict logic stays
         # single-sourced in Backend-PortPreflight.ps1; these are raw data
         # only, mirroring the module defaults exactly). Fixtures inject
@@ -276,12 +280,25 @@ function New-ProductionSeams {
         }) }.GetNewClosure()
         LookupProcess = { param($Id) Get-Process -Id $Id -ErrorAction Stop }.GetNewClosure()
         BootQuery = { Get-CimInstance Win32_OperatingSystem -ErrorAction Stop }.GetNewClosure()
-        PreflightClassify = { param($BridgeDir,$Owned,$Lq,$Lp,$Sl) . (Join-Path $BridgeDir 'Backend-PortPreflight.ps1'); Test-FrozenPortPreflight -OwnedPids $Owned -ListenerQuery $Lq -LookupProcess $Lp -SleepMs $Sl }.GetNewClosure()
+        ListBridgeProcesses = { Get-CimInstance Win32_Process }.GetNewClosure()
+        PreflightClassify = { param($BridgeDir,$Owned,$Lq,$Lp,$Sl,$Lp2=$null,$NodeExe='',$NativeExe='',$ServiceJs='',$WsUrl='ws://127.0.0.1:19457') . (Join-Path $BridgeDir 'Backend-PortPreflight.ps1'); Test-FrozenPortPreflight -OwnedPids $Owned -ListenerQuery $Lq -LookupProcess $Lp -SleepMs $Sl -ListProcesses $Lp2 -NodeExe $NodeExe -NativeExe $NativeExe -ServiceJs $ServiceJs -WsUrl $WsUrl }.GetNewClosure()
         PositiveDeath = { param($BridgeDir,$ProcId,$Lp,$Sl) . (Join-Path $BridgeDir 'Backend-PortPreflight.ps1'); Test-ProcessPositiveDeath -ProcId $ProcId -LookupProcess $Lp -SleepMs $Sl }.GetNewClosure()
         PauseTest = { param($Dir,$Bq) . (Join-Path $Dir 'Backend-PortPreflight.ps1'); Test-ManualPause -BridgeDir $Dir -BootQuery $Bq }.GetNewClosure()
         PausePublish = { param($Dir,$Reason,$Bq) . (Join-Path $Dir 'Backend-PortPreflight.ps1'); Publish-ManualPause -BridgeDir $Dir -Reason $Reason -BootQuery $Bq }.GetNewClosure()
         PauseClear = { param($Dir) . (Join-Path $Dir 'Backend-PortPreflight.ps1'); Clear-ManualPause -BridgeDir $Dir }.GetNewClosure()
         ProveIdentity = { param($BDir,$Set,$SeamTable,$Preflight) . (Join-Path $BDir 'Backend-PortPreflight.ps1'); Invoke-OwnedIdentityProof -BridgeDir $BDir -Settings $Set -Seams $SeamTable -Preflight $Preflight }.GetNewClosure()
+        # STAGED rev12: canonical shared port-release settlement (quiet
+        # window) through the staged module. Fixture tables lacking this
+        # seam fail closed wherever a release must be proven. The closure
+        # dot-sources the canonical module itself at call time (same
+        # transport as the classifier); a missing helper entrypoint throws
+        # inside the closure and every caller treats it as unavailable.
+        SettleRelease = { param($BDir,$Lq,$Lp,$Sl,$ExpectedRecord)
+            . (Join-Path $BDir 'Backend-PortPreflight.ps1')
+            if (-not (Test-SettlementHelperPresent)) { throw 'Port-release settlement helper is missing (mixed-version modules).' }
+            $rr = { Get-Content -LiteralPath (Join-Path $BDir 'service.private.json') -Raw -ErrorAction Stop | ConvertFrom-Json }
+            Invoke-PortReleaseSettlement -Ports @(19457,19458) -ExpectedRecord $ExpectedRecord -ReadRecord $rr -ListenerQuery $Lq -LookupProcess $Lp -SleepMs $Sl
+        }.GetNewClosure()
         StartProc = { param($Path) Start-Process $Path }.GetNewClosure()
         SleepMs = { param($Ms) Start-Sleep -Milliseconds $Ms }.GetNewClosure()
         SleepSec = { param($Sec) Start-Sleep -Seconds $Sec }.GetNewClosure()
@@ -465,6 +482,14 @@ function Assert-PortPreflightModulePresent {
     param([string]$BridgeDir)
     $lib=Join-Path $BridgeDir 'Backend-PortPreflight.ps1'
     if(-not (Test-Path -LiteralPath $lib -PathType Leaf)){throw 'Frozen-port preflight module is missing from this bridge; refusing to proceed blind.'}
+    # STAGED rev12 mixed-version fail-closed: the settlement entrypoint must
+    # exist in the bridge module before any shared stop/switch/boot path may
+    # proceed (an old module beside this launcher must never silently skip
+    # the quiet window). Text-probed (never executed here — the seams
+    # dot-source the module themselves at call time).
+    $hasSettle=$false
+    try{ $hasSettle = [bool]((Get-Content -LiteralPath $lib -Raw -ErrorAction Stop) -match 'function\s+Invoke-PortReleaseSettlement\b') }catch{ $hasSettle=$false }
+    if(-not $hasSettle){throw 'Port-release settlement helper is missing from this bridge (mixed-version modules); refusing to proceed blind.'}
     return $lib
 }
 function Get-RecordOwnedPids {
@@ -490,15 +515,64 @@ function Get-RecordOwnedPids {
 # on any of these paths. The classifier closure dot-sources the canonical
 # module itself, so this works after any factory scope has returned.
 function Assert-NoGhostBeforeMutation {
-    param($BridgeDir,$Seams)
+    param($BridgeDir,$Seams,[switch]$SettleStopped,$ExpectedRecord=$null,
+        [string]$BackendStartMutexName='Local\PaseoCodexSharedBackendStart',[int]$BackendStartWaitMs=30000)
     if($null -eq $Seams.PreflightClassify -or $null -eq $Seams.ListFrozenListeners -or $null -eq $Seams.LookupProcess -or $null -eq $Seams.SleepMs){return $null}
+    # A previous switch can leave recorded-dead listeners, or a temporary
+    # free gap. Admit this observation through strict record/death proof,
+    # not argv-pattern diagnostics. Nothing is killed or adopted here.
+    # The startup mutex excludes Ensure throughout the cooling interval.
+    if ($SettleStopped) {
+        . (Join-Path $BridgeDir 'Backend-PortPreflight.ps1')
+        if ($null -eq $ExpectedRecord) { $ExpectedRecord=& $Seams.ReadBridgeJson 'service.private.json' }
+        $initialPin=ConvertTo-SettlementFingerprint $ExpectedRecord
+        if ($null -eq $initialPin) { throw 'Original backend record is unverifiable; nothing was stopped, switched, or booted.' }
+        $recordOwners=@([int]$initialPin.Pid)
+        if ([int]$initialPin.BackendPid -gt 0) { $recordOwners+=@([int]$initialPin.BackendPid) }
+        $allDead=$true
+        foreach ($recordOwner in $recordOwners) {
+            $life=Test-ProcessPositiveDeath -ProcId $recordOwner -LookupProcess $Seams.LookupProcess -SleepMs $Seams.SleepMs
+            if ($life -eq 'unknown') { throw 'Recorded owner liveness is unknown; nothing was stopped, switched, or booted.' }
+            if ($life -ne 'dead') { $allDead=$false }
+        }
+        if ($allDead) {
+            if ($null -eq $Seams.SettleRelease) { throw 'Port-release settlement is unavailable; nothing was stopped, switched, or booted.' }
+            $initialGuard=Enter-BackendStartGuard -MutexName $BackendStartMutexName -WaitMs $BackendStartWaitMs
+            try {
+                $settled=& $Seams.SettleRelease $BridgeDir $Seams.ListFrozenListeners $Seams.LookupProcess $Seams.SleepMs $initialPin
+                if ($null -eq $settled -or [string]$settled.outcome -ne 'settled') {
+                    $why=if($null -eq $settled){'unavailable'}else{[string]$settled.outcome}
+                    throw ('Previous backend release did not settle ('+$why+'); nothing was stopped, switched, or booted. A later retry may observe release.')
+                }
+            } finally { Exit-BackendStartGuard -Guard $initialGuard }
+        }
+    }
     $owned=Get-RecordOwnedPids $Seams $BridgeDir
+    # Holder-aware gate (rev 11): best-effort argv-pattern audit uses the
+    # live settings tokens when readable; unreadable settings fail closed to
+    # unknown-refuse (still refuses, no reboot claim). An argv match is a
+    # pattern only, never proof of socket ownership. Fixture tables without
+    # ListBridgeProcesses get unknown-refuse on dead-owner evidence.
+    $holderProcs=$null
+    $holderNode=''
+    $holderNative=''
+    $holderServiceJs=''
+    try {
+        if($null -ne $Seams.ListBridgeProcesses){ $holderProcs=$Seams.ListBridgeProcesses }
+        try {
+            $holderSettings=& $Seams.ReadBridgeJson 'settings.json'
+            $holderNode=[string]$holderSettings.node
+            $holderNative=[string]$holderSettings.native
+            $holderServiceJs=(Join-Path $BridgeDir 'service.mjs')
+        } catch {}
+    } catch {}
     $pf=$null
     try{
-        $pf=& $Seams.PreflightClassify $BridgeDir $owned $Seams.ListFrozenListeners $Seams.LookupProcess $Seams.SleepMs
+        $pf=& $Seams.PreflightClassify $BridgeDir $owned $Seams.ListFrozenListeners $Seams.LookupProcess $Seams.SleepMs $holderProcs $holderNode $holderNative $holderServiceJs 'ws://127.0.0.1:19457'
     }catch{$pf=$null}
     if($null -eq $pf){throw 'Frozen-port preflight is unavailable; refusing to mutate an unverified backend.'}
-    if($pf.verdict -eq 'ghost-reboot-required'){throw 'ghost socket — reboot required: a frozen port is LISTENING but its recorded owner is positively dead. Only a Windows reboot clears it; nothing was cancelled, stopped, or switched.'}
+    if($pf.verdict -eq 'ghost-reboot-required'){throw 'stable dead-owner LISTENING with no bridge argv pattern on a complete scan; kernel ghost suspected but cause not proven; release is not yet established; retry after a verified release or inspect local diagnostics; nothing was cancelled, stopped, or switched.'}
+    if($pf.verdict -eq 'ghost-holder-suspect'){throw 'bridge argv pattern observed only (not proof any process holds the socket); cause unproven; review holders idle-verified instead of assuming a reboot is required; nothing was cancelled, stopped, or switched.'}
     if($pf.verdict -eq 'foreign-refuse'){throw 'A foreign process owns a frozen port; refusing before any mutation. Nothing was stopped.'}
     if($pf.verdict -ne 'free' -and $pf.verdict -ne 'owned-live'){throw 'Frozen-port ownership is unverifiable (unknown or access-denied); refusing before any mutation. Nothing was stopped.'}
     return $pf
@@ -534,7 +608,8 @@ function Get-CodexDesktopFamily {
 function Stop-CodexAllComplete {
     param($BridgeDir,$Settings,$Seams,$BackendStartMutexName,$BackendStartWaitMs)
     Assert-PortPreflightModulePresent $BridgeDir | Out-Null
-    $pf=Assert-NoGhostBeforeMutation $BridgeDir $Seams
+    $stopRecord=& $Seams.ReadBridgeJson 'service.private.json'
+    $pf=Assert-NoGhostBeforeMutation $BridgeDir $Seams -SettleStopped -ExpectedRecord $stopRecord -BackendStartMutexName $BackendStartMutexName -BackendStartWaitMs $BackendStartWaitMs
     $identity=Test-OwnedBackendIdentity $BridgeDir $Settings $Seams $pf
     if($identity -ne 'owned-proven' -and $identity -ne 'already-stopped' -and $identity -ne 'failed-owned'){throw ('Owned backend identity unproven before the manual stop (' + $identity + '); nothing was stopped.')}
     $stopGuard=Enter-BackendStartGuard -MutexName $BackendStartMutexName -WaitMs $BackendStartWaitMs
@@ -546,24 +621,15 @@ function Stop-CodexAllComplete {
         if($id2 -ne 'already-stopped'){
             & $Seams.StopBackendForced $BridgeDir $Settings
         }
-        $rel=$null
-        try{
-            if($null -ne $Seams.PreflightClassify -and $null -ne $Seams.ListFrozenListeners){
-                $owned=Get-RecordOwnedPids $Seams $BridgeDir
-                $rel=& $Seams.PreflightClassify $BridgeDir $owned $Seams.ListFrozenListeners $Seams.LookupProcess $Seams.SleepMs
-            }
-        }catch{$rel=$null}
-        if($null -eq $rel -or $rel.verdict -ne 'free'){throw 'Shared ports were not released by the manual stop; no auth was changed and no pause was published.'}
-        # Post-stop ownership settlement: every recorded owned identity must
-        # be positively dead — a live owned native with freed ports could
-        # still hold cached auth. Unknown/denied refuses even on free ports.
-        if($null -eq $Seams.PositiveDeath){throw 'Post-stop identity proof is unavailable; refusing an unproven stop.'}
-        $ownedPost=Get-RecordOwnedPids $Seams $BridgeDir
-        foreach($pidInt in $ownedPost){
-            $life=$null
-            try{$life=& $Seams.PositiveDeath $BridgeDir ([int]$pidInt) $Seams.LookupProcess $Seams.SleepMs}catch{$life='unknown'}
-            if($life -ne 'dead'){throw 'A recorded owned process is not positively dead after the stop; refusing an unproven stop (no pause published).'}
-        }
+        # STAGED rev12: the manual stop settles through the canonical shared
+        # settlement (an initial free observation only starts the quiet
+        # span — it never verifies alone). Missing settlement seams fail
+        # closed with no pause published.
+        if($null -eq $Seams.SettleRelease){throw 'Port-release settlement is unavailable in this invocation; refusing an unproven stop (no pause published).'}
+        $stopSettle=$null
+        try{$stopSettle=& $Seams.SettleRelease $BridgeDir $Seams.ListFrozenListeners $Seams.LookupProcess $Seams.SleepMs $stopRecord}catch{$stopSettle=$null}
+        if($null -eq $stopSettle){throw 'Port-release settlement is unavailable; refusing an unproven stop (no pause published).'}
+        if([string]$stopSettle.outcome -ne 'settled'){throw ('Shared ports were not released by the manual stop (settlement: '+[string]$stopSettle.outcome+'); no auth was changed and no pause was published.')}
         $goneCount=@(Get-CodexDesktopFamily $Seams).Count
         if($goneCount -ne 0){throw 'Desktop family processes remain after the stop; refusing an unproven stop (no pause published).'}
         $bq=$null
@@ -691,7 +757,8 @@ function Invoke-CodexApp {
         Assert-PortPreflightModulePresent $bridgeDir | Out-Null
         $sharedSettings=& $Seams.ReadBridgeJson 'settings.json'
         $sharedSettings|Add-Member -NotePropertyName 'bridgeDir' -NotePropertyValue $bridgeDir -Force
-        $preflight=Assert-NoGhostBeforeMutation $bridgeDir $Seams
+        $operationRecord=& $Seams.ReadBridgeJson 'service.private.json'
+        $preflight=Assert-NoGhostBeforeMutation $bridgeDir $Seams -SettleStopped -ExpectedRecord $operationRecord -BackendStartMutexName $BackendStartMutexName -BackendStartWaitMs $BackendStartWaitMs
         $identity=Test-OwnedBackendIdentity $bridgeDir $sharedSettings $Seams $preflight
         if($identity -ne 'owned-proven' -and $identity -ne 'already-stopped' -and $identity -ne 'failed-owned'){throw ('Owned backend identity unproven before the manual operation (' + $identity + '); nothing was stopped, switched, or booted.')}
         $alreadyStopped=($identity -eq 'already-stopped')
@@ -765,21 +832,35 @@ function Invoke-CodexApp {
             if($null -ne $plan.Account){
                 if($alreadyStopped){
                     # Safe already-stopped proof: no idle stop to run and
-                    # no status to fetch — switch straight to the single
-                    # post-switch boot. The backend-start guard still spans
-                    # the switch so nothing boots old auth concurrently.
+                    # no status to fetch. The backend-start guard spans
+                    # revalidation + settlement + switch so nothing boots old
+                    # auth concurrently; the outer try/finally releases it on
+                    # EVERY exit (a revalidation or settlement refusal must
+                    # never leak the guard — STAGED rev12 fix). Even on a
+                    # free preflight the canonical settlement quiet window
+                    # runs before any auth change; auth happens only after
+                    # full release, then the single post-switch boot.
                     $guardedGuard = Enter-BackendStartGuard -MutexName $BackendStartMutexName -WaitMs $BackendStartWaitMs
-                    $reGuard=Assert-NoGhostBeforeMutation $bridgeDir $Seams
-                    if($null -eq $reGuard -or $reGuard.verdict -ne 'free'){throw 'Owned backend identity changed while acquiring the startup guard; nothing was switched.'}
                     try{
-                        Switch-CodexAuth $plan.Account $Seams
-                    }catch{
-                        $switchError=$_
+                        $reGuard=Assert-NoGhostBeforeMutation $bridgeDir $Seams
+                        if($null -eq $reGuard -or $reGuard.verdict -ne 'free'){throw 'Owned backend identity changed while acquiring the startup guard; nothing was switched.'}
+                        if($null -eq $Seams.SettleRelease){throw 'Port-release settlement is unavailable; nothing was switched.'}
+                        $reGuardSettle=$null
+                        try{$reGuardSettle=& $Seams.SettleRelease $bridgeDir $Seams.ListFrozenListeners $Seams.LookupProcess $Seams.SleepMs $operationRecord}catch{$reGuardSettle=$null}
+                        $reGuardOutcome=if($null -eq $reGuardSettle){'unavailable'}else{[string]$reGuardSettle.outcome}
+                        if($reGuardOutcome -ne 'settled'){throw ('Shared ports did not settle before the switch (settlement: '+$reGuardOutcome+'); nothing was switched.')}
+                        try{
+                            Switch-CodexAuth $plan.Account $Seams
+                        }catch{
+                            $switchError=$_
+                            Exit-BackendStartGuard -Guard $guardedGuard
+                            try{ & $Seams.EnsureBackend; & $Seams.OpenSharedApps }catch{}
+                            throw $switchError
+                        }
                         Exit-BackendStartGuard -Guard $guardedGuard
-                        try{ & $Seams.EnsureBackend; & $Seams.OpenSharedApps }catch{}
-                        throw $switchError
+                    }finally{
+                        Exit-BackendStartGuard -Guard $guardedGuard
                     }
-                    Exit-BackendStartGuard -Guard $guardedGuard
                     & $Seams.EnsureBackend
                 }else{
                 # Idle-verified stop BEFORE the switch: the backend must
@@ -792,9 +873,13 @@ function Invoke-CodexApp {
                 # Revalidate after the guard wait: the backend may have
                 # changed hands while waiting. Refusals throw before the
                 # idle stop; a benign already-exit is tolerated downstream.
-                Assert-NoGhostBeforeMutation $bridgeDir $Seams | Out-Null
                 try{
+                    Assert-NoGhostBeforeMutation $bridgeDir $Seams | Out-Null
                     try{
+                        # Renew the 10-second idle proof AFTER Desktop shutdown and
+                        # backend-start guard acquisition, immediately before stop.
+                        # If a reply started, refuse rather than extending TTL or forcing.
+                        Wait-SharedRepliesIdle $sharedSettings 0 $Seams
                         & $Seams.StopBackendIdle $bridgeDir $sharedSettings
                     }catch{
                         $idleStopError=$_
@@ -840,18 +925,29 @@ function Invoke-CodexApp {
                     Write-Host 'Codex Desktop is connected to the shared Paseo backend.' -ForegroundColor Green
                     return
                 }
+                # STAGED rev12: same guard-leak fix and pre-switch settlement
+                # as the guarded already-stopped path above.
                 $bareGuard = Enter-BackendStartGuard -MutexName $BackendStartMutexName -WaitMs $BackendStartWaitMs
-                $reBare=Assert-NoGhostBeforeMutation $bridgeDir $Seams
-                if($null -eq $reBare -or $reBare.verdict -ne 'free'){throw 'Owned backend identity changed while acquiring the startup guard; nothing was switched.'}
                 try{
-                    Switch-CodexAuth $plan.Account $Seams
-                }catch{
-                    $switchError=$_
+                    $reBare=Assert-NoGhostBeforeMutation $bridgeDir $Seams
+                    if($null -eq $reBare -or $reBare.verdict -ne 'free'){throw 'Owned backend identity changed while acquiring the startup guard; nothing was switched.'}
+                    if($null -eq $Seams.SettleRelease){throw 'Port-release settlement is unavailable; nothing was switched.'}
+                    $reBareSettle=$null
+                    try{$reBareSettle=& $Seams.SettleRelease $bridgeDir $Seams.ListFrozenListeners $Seams.LookupProcess $Seams.SleepMs $operationRecord}catch{$reBareSettle=$null}
+                    $reBareOutcome=if($null -eq $reBareSettle){'unavailable'}else{[string]$reBareSettle.outcome}
+                    if($reBareOutcome -ne 'settled'){throw ('Shared ports did not settle before the switch (settlement: '+$reBareOutcome+'); nothing was switched.')}
+                    try{
+                        Switch-CodexAuth $plan.Account $Seams
+                    }catch{
+                        $switchError=$_
+                        Exit-BackendStartGuard -Guard $bareGuard
+                        try{ & $Seams.EnsureBackend; & $Seams.OpenSharedApps }catch{}
+                        throw $switchError
+                    }
                     Exit-BackendStartGuard -Guard $bareGuard
-                    try{ & $Seams.EnsureBackend; & $Seams.OpenSharedApps }catch{}
-                    throw $switchError
+                }finally{
+                    Exit-BackendStartGuard -Guard $bareGuard
                 }
-                Exit-BackendStartGuard -Guard $bareGuard
                 & $Seams.EnsureBackend
                 & $Seams.OpenSharedApps
                 Write-Host 'Codex Desktop is connected to the shared Paseo backend.' -ForegroundColor Green
@@ -873,8 +969,8 @@ function Invoke-CodexApp {
             # child Ensure/Open processes, which would deadlock on a hold).
             $forceGuard = Enter-BackendStartGuard -MutexName $BackendStartMutexName -WaitMs $BackendStartWaitMs
             # Revalidate after the guard wait (same rule as above).
-            Assert-NoGhostBeforeMutation $bridgeDir $Seams | Out-Null
             try{
+                Assert-NoGhostBeforeMutation $bridgeDir $Seams | Out-Null
                 try{
                     & $Seams.StopBackendForced $bridgeDir $sharedSettings
                 }catch{

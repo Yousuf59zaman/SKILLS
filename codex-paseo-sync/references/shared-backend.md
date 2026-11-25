@@ -1,5 +1,7 @@
 # Shared backend, launch routing, and live delivery
 
+> For the explicitly reopened recurrent dead-owner listener/account-switch blocker, read [ghost-socket-settlement-20261030.md](ghost-socket-settlement-20261030.md) before the historical lifecycle details below. The reviewed v5 mechanism uses bounded settlement with strict original ownership and actual readiness proof; a transient free sample or a reboot-only diagnostic is not sufficient. The 2026-10-30 07:23 UTC production completion receipt records all ten reviewed disk targets after the narrow exact-descriptor repair. Loaded old KeepAlive activation and real-switch verification remain separate evidence gates.
+
 ## Installed architecture
 
 ```text

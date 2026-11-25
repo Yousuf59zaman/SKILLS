@@ -31,7 +31,7 @@ Dated observation from read-only verification (`%USERPROFILE%\.codex\tmp\paseo-s
 
 ---
 
-> Current executor policy (2026-10-19; supersedes Zen-default and native-Codex fallback): Codex plans, orchestrates and independently reviews; ALL substantive non-browser execution, implementation and drafting MUST use pinned `opencode-go/muse-spark-1.3-contributor` through native OpenCode CLI via `%USERPROFILE%\.codex\scripts\Invoke-MuseTask.ps1`. No Zen/free endpoint, other models, native Codex implementation/drafting fallback, Relay, or nested AI. Send only necessary non-secret context, then review actual results, diffs and evidence. Bounded same-pinned retries only; if Go Muse is unavailable, report failure and stop the dependent substantive non-browser work until the user changes the policy or the service recovers. `Invoke-ZenMuseTask.ps1` is only a compatibility shim forwarding to the Go canonical launcher and never executes Zen. An OpenCode worker with `OPENCODE_MUSE_WORKER=1` executes non-browser scope directly and never delegates back to the wrapper or another AI. A non-browser Muse outage stops dependent non-browser work only and never blocks authorized browser work, which Codex performs directly. Codex browser-direct exception (2026-10-27, Codex-only; takes precedence over the blanket ALL statement above for browser use): Codex itself directly performs ALL browser-use tasks — never Muse; see the canonical `$codex-execution-policy` skill. Non-browser pinned-Muse routing above is otherwise unchanged.
+> For Codex execution routing, follow the currently installed `codex-execution-policy`. Codex handles non-browser work directly. Browser steps use pinned Muse first and the existing bounded-unavailability fallback.
 
 ---
 
@@ -396,7 +396,7 @@ For any future Codex/Paseo continuation, repair, or historical-context request, 
 
 ## Standing execution and authorization bounds
 
-- Standing `AGENTS` pinned-Muse executor applies (non-browser scope; Codex browser-direct exception 2026-10-27 takes precedence for browser use): Codex plans and reviews; substantive non-browser execution and drafting go through the exact pinned Muse model. Preserve the explicit user authorization behind this skill update.
+- For Codex execution routing, follow the currently installed `codex-execution-policy`. Codex handles non-browser work directly. Browser steps use pinned Muse first and the existing bounded-unavailability fallback.
 - Invocation or context recovery never authorizes automatic live repair, deployment, UI or model turns, auth/history/settings changes, or GitHub publishing.
 
 ## Verified inspector lessons (2026-10-09)
